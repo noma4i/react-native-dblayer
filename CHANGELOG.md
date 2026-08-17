@@ -1,5 +1,20 @@
 # Changelog
 
+## 10.1.0-beta.7 - 2026-08-17
+
+### Fixed
+
+- Boot fsck rematerializes the temp row of a crashed optimistic insert: a kill between the ledger write and the row write left the operation open with no row to retry from, so the draft was invisible in the app while the ledger still carried its input. The action's own optimistic planner is registered per action key and replayed from the ledger input during `closeCrashedRequests` (spec 04, P53).
+
+### Changed
+
+- Test suite reworked to probative assertions: every case names the observable result (rows served, store and storage contents, transport variables, loading state) instead of internal shapes, spy counts, or a library call compared against itself. Direct helper tests are kept only where no public path reaches the branch, and each such case asserts literal values with the reason stated in the file.
+- Spec 10 defines the probative assertion, lists the 7 forbidden forms, and requires a positive counterpart for every negative assertion. `scripts/check-probative-asserts.mjs` scans those forms on every commit (`check:probative`).
+
+### Removed
+
+- Mutation gate: `scripts/run-mutation.mjs`, the Stryker configuration and dependencies, and the `test:mutation*` scripts. Mutation scores measured the assertions, not the behavior, and stayed green against non-probative assertions.
+
 ## 10.1.0-beta.6 - 2026-08-17
 
 ### Changed

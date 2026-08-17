@@ -59,59 +59,86 @@ const modelOperation = (operationId: string, model: string, overrides: Partial<O
 });
 
 describe('persistence schema manifest', () => {
-  it('labels every field builder and preserves default metadata through modifiers', () => {
-    const shape = defineShape()({ label: f.str() });
-    const fields = [f.str(), f.num(), f.int(), f.date(), f.bool(), f.id(), f.enum(['draft'] as const), f.raw(), f.custom(value => value), f.object(shape), f.array(f.str())];
+  it('applies every declared field kind and its default to the row a reader gets', async () => {
+    configureManifestRuntime();
+    const inner = defineShape()({ label: f.str() });
+    const rows = defineModelRuntime({
+      id: 'ManifestFieldKinds',
+      name: 'ManifestFieldKinds',
+      fields: {
+        text: f.str(),
+        amount: f.num(),
+        count: f.int(),
+        at: f.date(),
+        flag: f.bool(),
+        ref: f.id(),
+        state: f.enum(['draft', 'sent'] as const),
+        payload: f.raw(),
+        // A custom field reads the whole row, so its value follows the fields it derives from.
+        computed: f.custom((row: { amount?: number } | null | undefined) => `computed-${row?.amount ?? 0}`),
+        nested: f.object(inner).nullDefault(),
+        tags: f.array(f.str()),
+        fallback: f.str().default('fallback'),
+        optional: f.str().nullDefault()
+      }
+    });
+    await bootDb();
 
-    expect(fields.map(field => field.kind)).toEqual(['str', 'num', 'int', 'date', 'bool', 'id', 'enum', 'raw', 'custom', 'object', 'array']);
-    expect(f.str().hasDefault).toBe(false);
-    expect(f.str().nullable().hasDefault).toBe(false);
-    expect(f.str().nullDefault().hasDefault).toBe(true);
-    expect(f.str().default('fallback').hasDefault).toBe(true);
-    expect(f.object(shape).emptyDefault().hasDefault).toBe(true);
+    rows.insert({
+      id: 'row-1',
+      text: 'text',
+      amount: 1.5,
+      count: 2,
+      at: '2026-08-05T00:00:00Z',
+      flag: true,
+      ref: 'ref-1',
+      state: 'draft',
+      payload: { any: 'thing' },
+      tags: ['a', 'b']
+    } as never);
+
+    // Declared kinds and declared defaults are what the reader gets: an omitted field with a
+    // declared default carries that default, and a declared kind normalizes its value.
+    expect(rows.find('row-1')).toMatchObject({
+      id: 'row-1',
+      text: 'text',
+      amount: 1.5,
+      count: 2,
+      flag: true,
+      ref: 'ref-1',
+      state: 'draft',
+      payload: { any: 'thing' },
+      computed: 'computed-1.5',
+      tags: ['a', 'b'],
+      optional: null,
+      nested: null
+    });
   });
 
-  it('computes a stable fingerprint independent of registration order', () => {
-    const first = declaration('manifest-stable-first');
-    const second = declaration('manifest-stable-second');
+  it('keeps stored rows when only the declaration ORDER changes and drops them when a field declaration changes', async () => {
+    const storage = createMemoryPlane();
+    const boot = async (fields: Record<string, unknown>, order: 'ab' | 'ba') => {
+      configureDb({ storage, transport: createMockTransport() });
+      const first = defineModelRuntime({ id: 'ManifestOrderFirst', name: 'ManifestOrderFirst', fields: { label: f.str() } });
+      const second = defineModelRuntime({ id: 'ManifestOrderSecond', name: 'ManifestOrderSecond', fields: fields as { label: ReturnType<typeof f.str> } });
+      const result = await bootDb();
+      return { first, second, result, models: order === 'ab' ? [first, second] : [second, first] };
+    };
 
-    registerSchemaDeclaration(second);
-    registerSchemaDeclaration(first);
-    const fingerprints = computeSchemaFingerprints();
-    registerSchemaDeclaration(first);
-    registerSchemaDeclaration(second);
+    const initial = await boot({ label: f.str() }, 'ab');
+    initial.first.insert({ id: 'row-1', label: 'kept' });
+    initial.second.insert({ id: 'row-2', label: 'kept-too' });
 
-    expect(computeSchemaFingerprints()).toEqual(fingerprints);
-  });
+    // Same declarations, registered in the other order: the fingerprint is the same, so nothing resets.
+    const reordered = await boot({ label: f.str() }, 'ba');
+    expect(reordered.result.reset).toBe(false);
+    expect(reordered.first.all().map(row => row.id)).toEqual(['row-1']);
+    expect(reordered.second.all().map(row => row.id)).toEqual(['row-2']);
 
-  it('changes the fingerprint for field and scope declarations', () => {
-    const id = 'manifest-sensitive';
-    registerSchemaDeclaration(declaration(id));
-    const baseline = computeSchemaFingerprints();
-
-    registerSchemaDeclaration(declaration(id, { title: { kind: 'num', mode: 'required', hasDefault: false } }));
-    expect(computeSchemaFingerprints()).not.toEqual(baseline);
-
-    registerSchemaDeclaration(declaration(id, { title: { kind: 'str', mode: 'nullable', hasDefault: false } }));
-    expect(computeSchemaFingerprints()).not.toEqual(baseline);
-
-    registerSchemaDeclaration(
-      declaration(id, {
-        title: { kind: 'str', mode: 'required', hasDefault: false },
-        subtitle: { kind: 'str', mode: 'required', hasDefault: false }
-      })
-    );
-    expect(computeSchemaFingerprints()).not.toEqual(baseline);
-
-    registerSchemaDeclaration(declaration(id));
-    expect(computeSchemaFingerprints()).toEqual(baseline);
-
-    registerSchemaDeclaration(declaration(id, undefined, { feed: { by: { ownerId: 'ownerId' }, sort: 'server-order' } }));
-    const scoped = computeSchemaFingerprints();
-    expect(scoped).not.toEqual(baseline);
-
-    registerSchemaDeclaration(declaration(id, undefined, { feed: { by: { ownerId: 'authorId' }, sort: 'field:createdAt:desc' } }));
-    expect(computeSchemaFingerprints()).not.toEqual(scoped);
+    // A changed field declaration of ONE model drops that model's rows and keeps the other's.
+    const changed = await boot({ label: f.num() }, 'ab');
+    expect(changed.first.all().map(row => row.id)).toEqual(['row-1']);
+    expect(changed.second.all()).toEqual([]);
   });
 
   it('writes a manifest for an empty boot without resetting', async () => {
@@ -177,18 +204,28 @@ describe('persistence schema manifest', () => {
 
   it('does not classify a consumer data version migration as corruption recovery', async () => {
     const storage = configureManifestRuntime(undefined, 'build-1');
+    const rows = defineManifestModel('ManifestVersionRows');
     await bootDb();
+    rows.insert({ id: 'row-1', label: 'cached' });
+    getOperationState().begin(modelOperation('manifest-version-op', 'ManifestVersionRows'));
     const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
       reset: () => void;
       snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
     };
     diagnostics.reset();
 
+    // The outbox reached the disk before the restart: this is what the migration must carry over.
+    expect((storage.get('dbl:ops') ?? '').includes('manifest-version-op')).toBe(true);
     configureManifestRuntime(storage, 'build-2');
     await bootDb();
 
     expect(diagnostics.snapshot().dataLossEvents.some(event => event.mechanism === 'model-corruption-recovery')).toBe(false);
     expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'data-version-migration-reset', model: '__runtime__', count: 1 });
+    // The migration is a declared cache reset, so the cached rows are gone and the outbox is not.
+    expect(rows.all()).toEqual([]);
+    // The ledger record itself rides the migration verbatim and is closed by the boot fsck, per OP34,
+    // as `rolledback` because this operation left no temp row or rollback snapshot behind.
+    expect(getOperationState().get('manifest-version-op')).toMatchObject({ operationId: 'manifest-version-op', model: 'ManifestVersionRows', status: 'rolledback' });
   });
 
   it('does not classify a schema and consumer data version migration as corruption recovery', async () => {

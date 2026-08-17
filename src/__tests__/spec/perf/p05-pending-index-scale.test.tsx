@@ -53,10 +53,12 @@ describe('pending operation index scale', () => {
   it('pendingForRow remains addressed to its row after 3000 foreign operations', () => {
     setupSpecRuntime();
     seedTargetOps(5, 0);
-    const before = getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW).map(operation => operation.operationId);
+    const expected = ['target-0', 'target-1', 'target-2', 'target-3', 'target-4'];
+    expect(getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW).map(operation => operation.operationId)).toEqual(expected);
     seedForeignOps(3000);
 
-    expect(getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW).map(operation => operation.operationId)).toEqual(before);
+    // The named operations of THIS row, in creation order, are still the answer among 3000 others.
+    expect(getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW).map(operation => operation.operationId)).toEqual(expected);
   });
 
   it('pendingForRow is true only for the operation rows, and flips false after commit/discard', () => {

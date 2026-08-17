@@ -177,8 +177,18 @@ describe('app-shaped freshness conformance', () => {
     await bootDb();
     const reader = renderCountedInProvider(() => restarted.catalog({}).use());
     await settleUntil(() => calls === 2);
+    // Settle past the refetch: a second refetch of the same expired window would show up here.
+    await settle();
 
     expect(calls).toBe(2);
+    expect(reader.result().data).toEqual({ id: 'catalog', value: 'catalog' });
+    // The refetch reopened the window: a second reader mounting inside it serves the same data
+    // without asking the server again.
+    const second = renderCountedInProvider(() => restarted.catalog({}).use());
+    await settle();
+    expect(calls).toBe(2);
+    expect(second.result().data).toEqual({ id: 'catalog', value: 'catalog' });
+    second.unmount();
     reader.unmount();
   });
 
@@ -253,8 +263,18 @@ describe('app-shaped freshness conformance', () => {
     await bootDb();
     const reader = renderCountedInProvider(() => Restarted.list({ statusFilter: 'active' }).use());
     await settleUntil(() => calls === 2);
+    // Settle past the refetch: a second refetch of the same expired window would show up here.
+    await settle();
 
     expect(calls).toBe(2);
+    expect((reader.result().data as Array<{ id: string }>).map(row => row.id)).toEqual(['chat-1']);
+    // The refetch reopened the window: a second reader mounting inside it serves the same rows
+    // without asking the server again.
+    const second = renderCountedInProvider(() => Restarted.list({ statusFilter: 'active' }).use());
+    await settle();
+    expect(calls).toBe(2);
+    expect((second.result().data as Array<{ id: string }>).map(row => row.id)).toEqual(['chat-1']);
+    second.unmount();
     reader.unmount();
   });
 

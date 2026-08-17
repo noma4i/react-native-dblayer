@@ -107,7 +107,14 @@ describe('action runtime edges', () => {
 
     const input = { value: 'plain', replyToId: undefined, nested: { keep: 'yes', drop: undefined } } as Input;
     await expect(Model.actions.apply.run(input)).resolves.toEqual({ row: { id: 'server-undef', value: 'plain' } });
+    expect(Model.find('server-undef')).toEqual({ id: 'server-undef', value: 'plain' });
+
+    // What crosses the transport wire carries no undefined keys at any depth: the serialized
+    // variables are exactly the defined key set.
     expect(transport.calls).toHaveLength(1);
+    const variables = (transport.calls[0]!.operation as { variables: unknown }).variables;
+    expect(variables).toEqual({ input: { value: 'plain', nested: { keep: 'yes' } } });
+    expect(JSON.parse(JSON.stringify(variables))).toStrictEqual({ input: { value: 'plain', nested: { keep: 'yes' } } });
 
     const sparseList = { value: 'plain', list: ['a', undefined] } as unknown as Input;
     await expect(Model.actions.apply.run(sparseList)).rejects.toThrow('action input is not JSON serializable');

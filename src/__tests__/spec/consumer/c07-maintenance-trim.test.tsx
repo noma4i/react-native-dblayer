@@ -252,8 +252,10 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlFresh', 1000);
     rows.insert({ id: 'temp-fresh', createdAt: fresh(), label: 'fresh' });
+    rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
     runPendingTempRowMaintenance();
-    expect(rows.find('temp-fresh')).toBeTruthy();
+    // The fresh row keeps its fields; the aged sibling of the same model is what the sweep takes.
+    expect(rows.where({}).map(row => [row.id, row.label])).toEqual([['temp-fresh', 'fresh']]);
   });
 
   it('drops a temp row with an unparseable creation time', () => {
@@ -268,8 +270,10 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlPermanent', 1000);
     rows.insert({ id: 'server-old', createdAt: old(), label: 'server' });
+    rows.insert({ id: 'temp-old', createdAt: old(), label: 'temp' });
     runPendingTempRowMaintenance();
-    expect(rows.find('server-old')).toBeTruthy();
+    // Same age, different identity: only the temp id is swept.
+    expect(rows.where({}).map(row => [row.id, row.label])).toEqual([['server-old', 'server']]);
   });
 
   it('does not clean a model without a declared age', () => {
@@ -277,7 +281,7 @@ describe('unresolved temp row retention', () => {
     const rows = createTempRows('PendingTtlDisabled');
     rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
     runPendingTempRowMaintenance();
-    expect(rows.find('temp-old')).toBeTruthy();
+    expect(rows.where({}).map(row => [row.id, row.label])).toEqual([['temp-old', 'old']]);
   });
 
   it('removes without a tombstone so a later authoritative write lands', () => {
@@ -320,9 +324,13 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const protectedIds = new Set(['temp-model']);
     const rows = createTempRows('PendingTtlModelProtected', 1000, () => protectedIds);
-    rows.insert({ id: 'temp-model', createdAt: old(), label: 'protected' });
+    rows.insertMany([
+      { id: 'temp-model', createdAt: old(), label: 'protected' },
+      { id: 'temp-other', createdAt: old(), label: 'unprotected' }
+    ]);
     runPendingTempRowMaintenance();
-    expect(rows.find('temp-model')).toBeTruthy();
+    // Same age, same model: the declared protection is the only difference.
+    expect(rows.where({}).map(row => [row.id, row.label])).toEqual([['temp-model', 'protected']]);
   });
 
   it('reads the model protection source again for the next cleanup', () => {
@@ -350,7 +358,7 @@ describe('unresolved temp row retention', () => {
     rows.insert({ id: 'temp-model', createdAt: old(), label: 'model' });
     const pending = rows.actions.save.run({});
     runPendingTempRowMaintenance();
-    expect(rows.where({}).read()).toHaveLength(2);
+    expect(rows.where({}).read().map(row => row.label).sort()).toEqual(['model', 'pending']);
     resolve({ data: { save: { id: 'server-1', createdAt: fresh(), label: 'done' } } });
     await pending;
   });
@@ -359,11 +367,15 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const protectedIds = new Set(['temp-model']);
     const rows = createTempRows('PendingTtlBootAndGc', 1000, () => protectedIds);
-    rows.insert({ id: 'temp-model', createdAt: old(), label: 'protected' });
+    rows.insertMany([
+      { id: 'temp-model', createdAt: old(), label: 'protected' },
+      { id: 'temp-other', createdAt: old(), label: 'unprotected' }
+    ]);
     persistCurrentManifest();
     await bootDb();
-    expect(rows.find('temp-model')).toBeTruthy();
+    // Boot sweeps the unprotected aged row and keeps the protected one with its fields.
+    expect(rows.where({}).map(row => [row.id, row.label])).toEqual([['temp-model', 'protected']]);
     runPendingTempRowMaintenance();
-    expect(rows.find('temp-model')).toBeTruthy();
+    expect(rows.where({}).map(row => [row.id, row.label])).toEqual([['temp-model', 'protected']]);
   });
 });

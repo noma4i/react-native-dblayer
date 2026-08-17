@@ -6,7 +6,7 @@ const reactHooks = require('eslint-plugin-react-hooks');
 
 module.exports = [
   {
-    ignores: ['eslint.config.js', 'node_modules/**', 'lib/**', 'dist/**', '.yarn/**', 'coverage/**', '.stryker-tmp/**', 'reports/**', 'jest.stryker.config.js']
+    ignores: ['eslint.config.js', 'node_modules/**', 'lib/**', 'dist/**', '.yarn/**', 'coverage/**', 'reports/**']
   },
   {
     files: ['src/**/*.ts', 'src/**/*.tsx'],

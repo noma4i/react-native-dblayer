@@ -250,10 +250,22 @@ describe('media scope bucket behavior', () => {
     expect(media.scopes.media.read(visual).map(row => row.id)).toEqual(['visual-1']);
   });
 
-  it('preserves derived behavior through nullable custom field chaining', () => {
-    const field = f.custom<'audio' | 'visual' | null, DerivedMediaInput>(input => (input.media?.kind === 'audio' ? 'audio' : input.media?.kind ? 'visual' : null)).nullable();
+  it('derives a nullable custom field from the whole input row after nullable chaining', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+    const media = createDerivedMediaModel();
 
-    expect(field.derived).toBe(true);
+    // The chained field still reads the WHOLE input (input.media), not input.bucket: a field that
+    // lost derived sourcing through .nullable() would find no `bucket` key and store nothing.
+    media.insert({ id: 'd-audio', chatId: 'chat-1', media: { kind: 'audio' }, sequenceNumber: 3, label: 'a' } as never);
+    media.insert({ id: 'd-video', chatId: 'chat-1', media: { kind: 'video' }, sequenceNumber: 2, label: 'v' } as never);
+    media.insert({ id: 'd-none', chatId: 'chat-1', sequenceNumber: 1, label: 'n' } as never);
+
+    expect(media.find('d-audio')).toMatchObject({ bucket: 'audio' });
+    expect(media.find('d-video')).toMatchObject({ bucket: 'visual' });
+    expect(media.find('d-none')).toMatchObject({ bucket: null });
+    // The derived value also drives scope membership.
+    expect(media.scopes.media.read({ chatId: 'chat-1', bucket: 'audio' }).map(row => row.id)).toEqual(['d-audio']);
+    expect(media.scopes.media.read({ chatId: 'chat-1', bucket: 'visual' }).map(row => row.id)).toEqual(['d-video']);
   });
 
   it('isolates composite bucket scope by chatId and mediaBucket', () => {

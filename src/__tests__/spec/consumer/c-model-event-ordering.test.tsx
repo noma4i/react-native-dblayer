@@ -172,7 +172,7 @@ describe('model event ordering', () => {
     unsubscribe();
   });
 
-  it('does not deliver after a planning failure', () => {
+  it('delivers a valid plan but drops both write and delivery after a planning failure', () => {
     const document = makeDocument();
     const variables = { roomId: 'ordering-planning-failure' };
     const { transport, subscribers } = createTransport();
@@ -182,18 +182,26 @@ describe('model event ordering', () => {
       'OrderingPlanningFailure',
       document,
       variables,
-      { insert: { select: () => null } },
-      (_context, plan) => {
+      { insert: { select: defaultRootSelect } },
+      (context, plan) => {
+        if (context.payload.message.id !== 'planning-failure') return;
         plan.update(target, 'missing', { label: undefined as unknown as string });
       }
     );
-    const listener = jest.fn();
-    const unsubscribe = model.events.changed.subscribe(listener);
+    const seen: LivePayload[] = [];
+    const unsubscribe = model.events.changed.subscribe(payloadValue => seen.push(payloadValue));
 
     renderActivation(true);
-    act(() => subscriberFor(subscribers, variables).handlers.next({ payloadAlias: payload('planning-failure', 1) }));
+    const subscriber = subscriberFor(subscribers, variables);
+    const validPayload = payload('planning-valid', 1);
+    act(() => subscriber.handlers.next({ payloadAlias: validPayload }));
+    expect(seen).toEqual([validPayload]);
+    expect(model.find('planning-valid')).toEqual(validPayload.message);
 
-    expect(listener).not.toHaveBeenCalled();
+    act(() => subscriber.handlers.next({ payloadAlias: payload('planning-failure', 2) }));
+    expect(seen).toEqual([validPayload]);
+    expect(model.find('planning-failure')).toBeUndefined();
+    expect(target.find('missing')).toBeUndefined();
     unsubscribe();
   });
 
@@ -376,25 +384,28 @@ describe('model event ordering', () => {
     unsubscribe();
   });
 
-  it('removes only the returned presentation listener teardown', () => {
+  it('removes only the returned presentation listener teardown while the sibling keeps receiving values', () => {
     const document = makeDocument();
     const variables = { roomId: 'ordering-teardown' };
     const { transport, subscribers } = createTransport();
     configureDb({ storage: createMemoryPlane(), transport });
     const model = createModel('OrderingTeardown', document, variables);
-    const first = jest.fn();
-    const second = jest.fn();
-    const unsubscribeFirst = model.events.changed.subscribe(first);
-    const unsubscribeSecond = model.events.changed.subscribe(second);
+    const firstSeen: LivePayload[] = [];
+    const secondSeen: LivePayload[] = [];
+    const unsubscribeFirst = model.events.changed.subscribe(payloadValue => firstSeen.push(payloadValue));
+    const unsubscribeSecond = model.events.changed.subscribe(payloadValue => secondSeen.push(payloadValue));
 
     renderActivation(true);
     const subscriber = subscriberFor(subscribers, variables);
-    act(() => subscriber.handlers.next({ payloadAlias: payload('teardown-first', 1) }));
+    const firstPayload = payload('teardown-first', 1);
+    const secondPayload = payload('teardown-second', 2);
+    act(() => subscriber.handlers.next({ payloadAlias: firstPayload }));
     unsubscribeFirst();
-    act(() => subscriber.handlers.next({ payloadAlias: payload('teardown-second', 2) }));
+    act(() => subscriber.handlers.next({ payloadAlias: secondPayload }));
 
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(second).toHaveBeenCalledTimes(2);
+    expect(firstSeen).toEqual([firstPayload]);
+    expect(secondSeen).toEqual([firstPayload, secondPayload]);
+    expect(model.find('teardown-second')).toEqual(secondPayload.message);
     unsubscribeSecond();
   });
 

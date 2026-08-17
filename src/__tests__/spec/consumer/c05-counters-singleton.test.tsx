@@ -118,25 +118,16 @@ describe('counters singleton consumer contracts', () => {
     expect(counters.current()?.unreadChatsCount).toBe(5);
   });
 
-  it('treats a malformed stored numeric value as zero before clamping', () => {
-    let row = { id: RECORD_ID, unreadChatsCount: 'bad', unreadSecondaryChatsCount: 0 } as unknown as CountersRow;
-    const update = jest.fn((_id: string, patch: Partial<CountersRow>) => {
-      row = { ...row, ...patch };
-    });
-    const singleton = createSingletonStatics<CountersRow>(
-      {
-        find: () => row,
-        use: { find: () => row },
-        insert: next => {
-          row = next;
-        },
-        update
-      },
-      RECORD_ID,
-      DEFAULTS
-    );
+  it('treats a non-numeric stored counter as zero before clamping', () => {
+    setupSpecRuntime();
+    const counters = createCounters('Malformed');
+    // The malformed transport value is dropped by f.num(), so the stored singleton row has NO
+    // numeric value for the field: the clamp baseline for such a row is zero.
+    counters.upsertCurrent({ unreadChatsCount: 'bad' as never, unreadSecondaryChatsCount: 3 });
+    expect(counters.current()).toStrictEqual({ id: RECORD_ID, unreadSecondaryChatsCount: 3 } as CountersRow);
+    expect(counters.current()!.unreadChatsCount).toBeUndefined();
 
-    expect(singleton.updateClamped('unreadChatsCount', 2)).toBe(true);
-    expect(update).toHaveBeenCalledWith(RECORD_ID, { unreadChatsCount: 2 });
+    expect(counters.updateClamped('unreadChatsCount', 2)).toBe(true);
+    expect(counters.current()).toStrictEqual({ id: RECORD_ID, unreadChatsCount: 2, unreadSecondaryChatsCount: 3 });
   });
 });

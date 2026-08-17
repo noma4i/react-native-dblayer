@@ -96,7 +96,15 @@ describe('replace relation effects', () => {
 
     parents.replace('temp-parent', { id: 'server-parent' } as never);
 
-    expect(items.find('child-1')).toBeDefined();
+    // The child keeps its row and its foreign key: the destroy half of the swap is not a real destroy.
+    expect(items.where({}).map(row => [row.id, row.parentId])).toEqual([['child-1', 'temp-parent']]);
+    expect(parents.where({}).map(row => row.id)).toEqual(['server-parent']);
+
+    // The positive counterpart: a real destroy does cascade over the children that point at it.
+    parents.insert({ id: 'other-parent' } as never);
+    items.insert({ id: 'child-2', parentId: 'other-parent' });
+    parents.destroy('other-parent');
+    expect(items.where({}).map(row => row.id)).toEqual(['child-1']);
   });
 
   it('E3 applies ordinary destroy effects but not snapshot insert effects', async () => {

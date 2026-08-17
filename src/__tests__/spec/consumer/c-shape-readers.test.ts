@@ -1,4 +1,5 @@
-import { defineShape, f, projectShape, readObjectField, readShape, readShapeOrThrow } from '../../testApi';
+import { defineModelRuntime, defineShape, f, projectShape, readObjectField, readShape, readShapeOrThrow } from '../../testApi';
+import { setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for the shape boundary readers.
 
@@ -45,7 +46,18 @@ describe('projectShape', () => {
 });
 
 describe('field defaults', () => {
-  it('does not attach a factory default key when no default is declared', () => {
-    expect(Object.prototype.hasOwnProperty.call(f.str(), 'factoryDefault')).toBe(false);
+  it('fills only declared factory defaults on a complete insert and leaves undefaulted fields absent', () => {
+    setupSpecRuntime();
+    const rows = defineModelRuntime({
+      id: 'SpecShapeReaderDefaults',
+      name: 'SpecShapeReaderDefaults',
+      fields: { plain: f.str(), stamped: f.str().default(() => 'given') }
+    });
+
+    rows.insert(rows.build({ id: 'row-1' } as never));
+    expect(rows.find('row-1')).toStrictEqual({ id: 'row-1', stamped: 'given' });
+
+    rows.insert(rows.build({ id: 'row-2', plain: 'explicit', stamped: 'explicit' }));
+    expect(rows.find('row-2')).toStrictEqual({ id: 'row-2', plain: 'explicit', stamped: 'explicit' });
   });
 });

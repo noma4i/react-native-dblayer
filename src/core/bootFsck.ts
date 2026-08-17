@@ -1,6 +1,7 @@
 import type { OperationTransition, WriteOp } from '../types';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getStoragePrefix } from '../dsl/configure';
 import { isTempRowProtectedByModel } from '../dsl/maintenanceRegistry';
+import { planOptimisticInsert } from '../dsl/optimisticInsertPlanners';
 import { createCommitEnvelope } from './apply/commitEnvelope';
 import { getApplyTarget } from './apply/applyTargetRegistry';
 import { getInternalModelHandleById } from './internalHandles';
@@ -34,6 +35,13 @@ const closeCrashedRequests = (): void => {
   const recoveryOps: WriteOp[] = [];
   const recoveryTransitions: OperationTransition[] = [];
   for (const operation of crashedRequests) {
+    // A crashed insert whose temp row never reached the disk (kill or cache reset between the ledger
+    // write and the row write) is rebuilt from its ledger input: a retryable draft is visible, not a
+    // ledger entry with no row.
+    const tempId = operation.intent === 'insert' && operation.tempIds.length === 1 ? operation.tempIds[0]! : null;
+    if (tempId !== null && Object.hasOwn(operation, 'input') && hasApplyTarget(operation.model) && getApplyTarget(operation.model).readRow(tempId) === undefined) {
+      recoveryOps.push(...(planOptimisticInsert(operation.model, operation.actionKey, operation.input, tempId, operation.operationId) ?? []));
+    }
     const planned = planRequestFailureRollback(
       operation,
       id => (hasApplyTarget(operation.model) ? getApplyTarget(operation.model).readRow(id) : undefined),

@@ -1,6 +1,7 @@
-import { configureDb, registerRelationHost, resetRuntime, registerApplyTarget, createCommitEnvelope, createApplyRuntime, createCommitBus, createModelStore, registerModelStoreFactory, defineModelRuntime, f, getApplyRuntime, getInternalScopeHandle, storeModelQuery, storeScopeCollection } from '../../testApi';
-import type { ApplyTarget, Dependency, IncrementalCommitBatch, RelationHost, StoredRow, WriteOp } from '../../testApi';
-import { createMemoryPlane, createMockTransport, diagnostics, setupSpecRuntime } from '../helpers/harness';
+import { configureDb, resetRuntime, registerApplyTarget, createCommitEnvelope, createApplyRuntime, createCommitBus, createModelStore, registerModelStoreFactory, defineModelRuntime, f, getApplyRuntime, getInternalScopeHandle, hasMany, storeModelQuery, storeScopeCollection } from '../../testApi';
+import type { ApplyTarget, IncrementalCommitBatch, StoredRow, WriteOp } from '../../testApi';
+import { act } from 'react';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 /**
  * Apply-pipeline batch contracts over a mock target: entity-before-scope ordering, scope-change
@@ -110,140 +111,95 @@ describe('apply pipeline batching', () => {
     expect(storage.keys(`${PREFIX}journal:`)).toEqual([]);
   });
 
-  it('subscribes with an empty dependency set when dependencies are omitted', () => {
-    setup();
-    const bus = createCommitBus();
-    const notify = jest.fn();
-
-    const subscription = bus.subscribe(notify);
-
-    expect(bus.subscriberCount()).toBe(1);
-    expect(bus.activeDependencies()).toEqual([]);
-    subscription.unsubscribe();
-    expect(bus.subscriberCount()).toBe(0);
-  });
-
-  it('matches every commit dependency dimension without cross-notifying', () => {
-    setup();
-    const bus = createCommitBus();
-    const notified: string[] = [];
-    const allBatches = jest.fn();
-    const subscribe = (name: string, dependency: Dependency) =>
-      bus.subscribe(() => notified.push(name), [dependency]);
-    const publish = (batch: IncrementalCommitBatch, expected: string[]) => {
-      notified.length = 0;
-      allBatches.mockClear();
-      bus.publish(batch);
-      expect(notified.sort()).toEqual([...expected].sort());
-      expect(allBatches).toHaveBeenCalledTimes(batch.rows.length || batch.scopes.length || batch.pending?.length ? 1 : 0);
-    };
-
-    bus.subscribeAll(allBatches);
-    subscribe('row-all', { kind: 'row', model: MODEL, id: 'row-1' });
-    subscribe('row-body', { kind: 'row', model: MODEL, id: 'row-1', fields: ['body'] });
-    subscribe('row-title', { kind: 'row', model: MODEL, id: 'row-1', fields: ['title'] });
-    subscribe('model', { kind: 'model', model: MODEL });
-    subscribe('scope', { kind: 'scope', model: MODEL, scopeKey: 'scope-1' });
-    subscribe('pending', { kind: 'pending', model: MODEL, id: 'row-1' });
-
-    publish({ rows: [], scopes: [] }, []);
-    publish({ rows: [{ model: 'OtherModel', id: 'row-1', fields: null }], scopes: [] }, []);
-    publish({ rows: [{ model: MODEL, id: 'row-2', fields: null }], scopes: [] }, ['model']);
-    publish({ rows: [{ model: MODEL, id: 'row-1', fields: ['body'] }], scopes: [] }, ['model', 'row-all', 'row-body']);
-    publish({ rows: [{ model: MODEL, id: 'row-1', fields: null }], scopes: [] }, ['model', 'row-all', 'row-body', 'row-title']);
-    publish({ rows: [], scopes: [{ model: MODEL, scopeKey: 'other-scope' }] }, ['model']);
-    publish({ rows: [], scopes: [{ model: 'OtherModel', scopeKey: 'scope-1' }] }, []);
-    publish({ rows: [], scopes: [{ model: MODEL, scopeKey: 'scope-1' }] }, ['model', 'scope']);
-    publish({ rows: [], scopes: [], pending: [{ model: MODEL, id: 'row-2' }] }, []);
-    publish({ rows: [], scopes: [], pending: [{ model: 'OtherModel', id: 'row-1' }] }, []);
-    publish({ rows: [], scopes: [], pending: [{ model: MODEL, id: 'row-1' }] }, ['pending']);
-  });
-
-  it('keeps dependency model identity isolated inside mixed commit batches', () => {
-    setup();
-    const observe = (dependency: Dependency, batch: IncrementalCommitBatch): number => {
-      const bus = createCommitBus();
-      const notify = jest.fn();
-      bus.subscribe(notify, [dependency]);
-      bus.publish(batch);
-      return notify.mock.calls.length;
-    };
-
-    expect({
-      row: observe(
-        { kind: 'row', model: MODEL, id: 'row-1' },
-        {
-          rows: [
-            { model: MODEL, id: 'row-2', fields: null },
-            { model: 'OtherModel', id: 'row-1', fields: null }
-          ],
-          scopes: []
-        }
-      ),
-      modelFromRow: observe(
-        { kind: 'model', model: MODEL },
-        { rows: [{ model: 'OtherModel', id: 'row-2', fields: null }], scopes: [], pending: [{ model: MODEL, id: 'row-2' }] }
-      ),
-      modelFromScope: observe(
-        { kind: 'model', model: MODEL },
-        { rows: [], scopes: [{ model: 'OtherModel', scopeKey: 'scope-1' }], pending: [{ model: MODEL, id: 'row-2' }] }
-      ),
-      scope: observe(
-        { kind: 'scope', model: MODEL, scopeKey: 'scope-1' },
-        { rows: [], scopes: [{ model: 'OtherModel', scopeKey: 'scope-1' }], pending: [{ model: MODEL, id: 'row-2' }] }
-      ),
-      pending: observe(
-        { kind: 'pending', model: MODEL, id: 'row-1' },
-        {
-          rows: [{ model: MODEL, id: 'row-2', fields: null }],
-          scopes: [],
-          pending: [{ model: 'OtherModel', id: 'row-1' }]
-        }
-      )
-    }).toEqual({
-      row: 0,
-      modelFromRow: 0,
-      modelFromScope: 0,
-      scope: 0,
-      pending: 0
+  it('[A14] notifies exactly the readers a commit touches, across rows, fields, scopes, models and pending state', () => {
+    setupSpecRuntime();
+    const rows = defineModelRuntime({
+      id: 'SpecApplyBatchFanoutRows',
+      name: 'SpecApplyBatchFanoutRows',
+      fields: { body: f.str(), bucket: f.str() },
+      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
     });
+    const others = defineModelRuntime({ id: 'SpecApplyBatchFanoutOthers', name: 'SpecApplyBatchFanoutOthers', fields: { body: f.str() } });
+    rows.insertMany([
+      { id: 'row-1', body: 'one', bucket: 'a' },
+      { id: 'row-2', body: 'two', bucket: 'b' }
+    ]);
+    others.insert({ id: 'other-1', body: 'foreign' });
+
+    const readers = {
+      row1: renderCounted(() => rows.use.find('row-1')),
+      row1Body: renderCounted(() => rows.use.field('row-1', 'body')),
+      row1Bucket: renderCounted(() => rows.use.field('row-1', 'bucket')),
+      bucketA: renderCounted(() => rows.scopes.byBucket.use({ bucket: 'a' }) as Array<{ id: string }>),
+      rowsCount: renderCounted(() => rows.use.count()),
+      othersRow: renderCounted(() => others.use.find('other-1'))
+    };
+    const capture = () => Object.fromEntries(Object.entries(readers).map(([name, reader]) => [name, reader.renders()]));
+    const deltas = (before: Record<string, number>) => Object.fromEntries(Object.entries(capture()).map(([name, value]) => [name, value - before[name]!]));
+
+    // A field patch of row-1 reaches the row reader and the field reader of THAT field only.
+    let before = capture();
+    act(() => {
+      rows.update('row-1', { body: 'one updated' });
+    });
+    expect(deltas(before)).toEqual({ row1: 1, row1Body: 1, row1Bucket: 0, bucketA: 1, rowsCount: 0, othersRow: 0 });
+    expect(readers.row1.result()).toMatchObject({ id: 'row-1', body: 'one updated' });
+    expect(readers.row1Body.result()).toBe('one updated');
+    expect(readers.bucketA.result().map(row => row.id)).toEqual(['row-1']);
+
+    // A write to a sibling model reaches nobody reading this model.
+    before = capture();
+    act(() => {
+      others.update('other-1', { body: 'foreign updated' });
+    });
+    expect(deltas(before)).toEqual({ row1: 0, row1Body: 0, row1Bucket: 0, bucketA: 0, rowsCount: 0, othersRow: 1 });
+    expect(readers.othersRow.result()).toMatchObject({ body: 'foreign updated' });
+
+    // A membership move: the scope the row leaves and the scope it joins both settle on their rows.
+    before = capture();
+    act(() => {
+      rows.update('row-2', { bucket: 'a' });
+    });
+    expect(deltas(before)).toEqual({ row1: 0, row1Body: 0, row1Bucket: 0, bucketA: 1, rowsCount: 0, othersRow: 0 });
+    expect(readers.bucketA.result().map(row => row.id)).toEqual(['row-1', 'row-2']);
+
+    // A new row of the model reaches the count reader; the point readers of other rows stay put.
+    before = capture();
+    act(() => {
+      rows.insert({ id: 'row-3', body: 'three', bucket: 'c' });
+    });
+    expect(deltas(before)).toEqual({ row1: 0, row1Body: 0, row1Bucket: 0, bucketA: 0, rowsCount: 1, othersRow: 0 });
+    expect(readers.rowsCount.result()).toBe(3);
+
+    for (const reader of Object.values(readers)) reader.unmount();
   });
 
-  it('keeps a sibling model subscriber indexed while dependencies and subscriptions change', () => {
-    setup();
-    const bus = createCommitBus();
-    const first = jest.fn();
-    const second = jest.fn();
-    const firstSubscription = bus.subscribe(first, [{ kind: 'model', model: MODEL }]);
-    const secondSubscription = bus.subscribe(second, [{ kind: 'model', model: MODEL }]);
+  it('[W45] lands the row and its membership from one commit whose scope op precedes the upsert', () => {
+    setupSpecRuntime();
+    const model = defineModelRuntime({
+      id: 'SpecApplyBatchScopeFirst',
+      name: 'SpecApplyBatchScopeFirst',
+      fields: { label: f.str(), bucket: f.str() },
+      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
+    });
+    const scope = getInternalScopeHandle(model.scopes.byBucket);
+    const scopeKey = scope.key({ bucket: 'a' });
+    const reader = renderCounted(() => model.scopes.byBucket.use({ bucket: 'a' }) as Array<{ id: string; label: string }>);
 
-    firstSubscription.unsubscribe();
-    bus.publish({ rows: [{ model: MODEL, id: 'row-1', fields: null }], scopes: [] });
-    expect(first).not.toHaveBeenCalled();
-    expect(second).toHaveBeenCalledTimes(1);
+    act(() => {
+      getApplyRuntime().commit(
+        createCommitEnvelope([
+          { kind: 'scope', model: model.modelId, scopeKey, next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V' }] } },
+          { kind: 'upsert', model: model.modelId, rows: [{ id: 'row-1', label: 'seated', bucket: 'a' }], origin: 'event' }
+        ])
+      );
+    });
 
-    // A dependency change is a new subscription: the old one leaves its bucket, the new one joins its own.
-    secondSubscription.unsubscribe();
-    const thirdSubscription = bus.subscribe(second, [{ kind: 'model', model: 'OtherModel' }]);
-    bus.publish({ rows: [{ model: MODEL, id: 'row-2', fields: null }], scopes: [] });
-    expect(second).toHaveBeenCalledTimes(1);
-    bus.publish({ rows: [{ model: 'OtherModel', id: 'row-2', fields: null }], scopes: [] });
-    expect(second).toHaveBeenCalledTimes(2);
-    thirdSubscription.unsubscribe();
-  });
-
-  it('applies entity work before scope membership inside one commit', () => {
-    const { storage, mock, bus } = setup();
-    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
-    const ops: WriteOp[] = [
-      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V' }] } },
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }], origin: 'event' }
-    ];
-
-    runtime.commit(createCommitEnvelope(ops));
-
-    const order = mock.calls.filter(call => call.op === 'put' || call.op === 'scope').map(call => call.op);
-    expect(order).toEqual(['put', 'scope']);
+    expect(model.find('row-1')).toEqual({ id: 'row-1', label: 'seated', bucket: 'a' });
+    expect(model.scopes.byBucket.read({ bucket: 'a' }).map(row => row.id)).toEqual(['row-1']);
+    expect(storeScopeCollection(model.modelId, scopeKey).toArray().map(row => row.id)).toEqual(['row-1']);
+    expect(reader.result()).toEqual([{ id: 'row-1', label: 'seated', bucket: 'a' }]);
+    reader.unmount();
   });
 
   it('[A14] [W6] [W30] [F7] notifies a model query only after every model in the envelope reached final state', () => {
@@ -352,20 +308,24 @@ describe('apply pipeline batching', () => {
     });
   });
 
-  it('normalizes non-string ids across every plan branch so one overlay identity survives the batch', () => {
-    const { mock } = setup();
-    void mock;
-    const ops: WriteOp[] = [
-      { kind: 'upsert', model: MODEL, rows: [{ id: 42 }] },
-      { kind: 'destroy', model: MODEL, ids: [42 as never] },
-      { kind: 'patch', model: MODEL, id: '42', patch: { label: 'x' } }
-    ];
+  it('normalizes non-string ids across upsert, patch, and destroy so one overlay identity survives the batch', () => {
+    setupSpecRuntime();
+    const model = defineModelRuntime({ id: 'SpecApplyBatchNumericId', name: 'SpecApplyBatchNumericId', fields: { label: f.str() } });
 
-    const envelope = createCommitEnvelope(ops);
+    // A numeric upsert id and a numeric patch id address the SAME planned row within one envelope.
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        { kind: 'upsert', model: model.modelId, rows: [{ id: 42, label: 'landed' }] },
+        { kind: 'patch', model: model.modelId, id: 42 as never, patch: { label: 'patched' } }
+      ])
+    );
+    expect(model.find('42')).toEqual({ id: '42', label: 'patched' });
+    expect(model.all().map(row => row.id)).toEqual(['42']);
 
-    expect(envelope.entityOps.map(op => op.kind)).toEqual(['upsert', 'destroy']);
-    const destroyOp = envelope.entityOps.find(op => op.kind === 'destroy');
-    expect(destroyOp && destroyOp.kind === 'destroy' ? destroyOp.ids : []).toEqual(['42']);
+    // A numeric destroy id resolves to the same stored identity.
+    getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: model.modelId, ids: [42 as never] }]));
+    expect(model.find('42')).toBeUndefined();
+    expect(model.all()).toEqual([]);
   });
 
   it('compiles chained counters into one callback-free effective row plan', () => {
@@ -403,75 +363,78 @@ describe('apply pipeline batching', () => {
     expect(diagnostics().snapshot().counterOpDrops).toBe(3);
   });
 
-  it('rejects a prepared upsert without a string id', () => {
-    const { mock } = setup();
-    mock.target.prepareUpsert = () => ({ row: { id: '' }, changedFields: null });
+  it('throws on a committed upsert row without a usable id and writes nothing, then lands a valid row', () => {
+    setupSpecRuntime();
+    const model = defineModelRuntime({ id: 'SpecApplyBatchNoId', name: 'SpecApplyBatchNoId', fields: { label: f.str() } });
 
-    expect(() => createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }])).toThrow(
-      `Prepared row for ${MODEL} has no string id`
+    expect(() => getApplyRuntime().commit(createCommitEnvelope([{ kind: 'upsert', model: model.modelId, rows: [{ label: 'orphan' }] }]))).toThrow(
+      'SpecApplyBatchNoId requires id'
     );
+    expect(model.all()).toEqual([]);
+
+    getApplyRuntime().commit(createCommitEnvelope([{ kind: 'upsert', model: model.modelId, rows: [{ id: 'row-1', label: 'kept' }] }]));
+    expect(model.all()).toEqual([{ id: 'row-1', label: 'kept' }]);
   });
 
-  it('passes invalid raw upsert shapes to model normalization without an overlay identity', () => {
-    const { mock } = setup();
-    const previousRows: Array<StoredRow | undefined> = [];
-    mock.target.prepareUpsert = (_incoming, previous) => {
-      previousRows.push(previous);
-      return null;
-    };
+  it('drops invalid raw shapes from a landing while the valid row of the same landing lands', () => {
+    setupSpecRuntime();
+    const model = defineModelRuntime({ id: 'SpecApplyBatchRawShapes', name: 'SpecApplyBatchRawShapes', fields: { label: f.str() } });
 
-    expect(createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [null, {}, 17, 'raw'] }]).entityOps).toEqual([]);
-    expect(previousRows).toEqual([undefined, undefined, undefined, undefined]);
+    model.insertMany([null, {}, 17, 'raw', { id: 'good', label: 'kept' }] as never[]);
+
+    expect(model.all()).toEqual([{ id: 'good', label: 'kept' }]);
   });
 
-  it('passes a merge base only for replacement upserts', () => {
-    const { mock } = setup();
-    const mergeBases: Array<StoredRow | undefined> = [];
-    mock.target.prepareUpsert = (_incoming, _previous, _origin, mergeBase) => {
-      mergeBases.push(mergeBase);
-      return null;
-    };
+  it('folds the merge base into a replacement upsert only, never into an event upsert', () => {
+    setupSpecRuntime();
+    const model = defineModelRuntime({ id: 'SpecApplyBatchMergeBase', name: 'SpecApplyBatchMergeBase', fields: { label: f.str(), note: f.str() } });
 
-    createCommitEnvelope([
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'event-row' }], origin: 'event', mergeBase: { id: 'wrong-base' } } as unknown as WriteOp,
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'replace-row' }], origin: 'replace', mergeBase: { id: 'right-base' } }
+    // The public identity swap: fields the server response omits survive from the temp row.
+    model.insert({ id: 'temp-1', label: 'temp', note: 'keep-note' });
+    model.replace('temp-1', { id: 'server-1', label: 'server' });
+    expect(model.find('temp-1')).toBeUndefined();
+    expect(model.find('server-1')).toEqual({ id: 'server-1', label: 'server', note: 'keep-note' });
+
+    // An event upsert carrying a smuggled merge base ignores it: only its own fields land.
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        { kind: 'upsert', model: model.modelId, rows: [{ id: 'event-row', label: 'live' }], origin: 'event', mergeBase: { id: 'event-row', note: 'wrong-base' } } as unknown as WriteOp
+      ])
+    );
+    expect(model.find('event-row')).toEqual({ id: 'event-row', label: 'live' });
+  });
+
+  it('cascades a dependent destroy over the row overlay, catching a child upserted in the same envelope', () => {
+    // The malformed-stored-id branch of the old planner test is unreachable through a real model:
+    // entityState coerces every stored id to a string on put and hydrate quarantines non-string ids.
+    setupSpecRuntime();
+    const children = defineModelRuntime({ id: 'SpecApplyCascadeChildren', name: 'SpecApplyCascadeChildren', fields: { parentId: f.str(), label: f.str() } });
+    const parents = defineModelRuntime({
+      id: 'SpecApplyCascadeParents',
+      name: 'SpecApplyCascadeParents',
+      fields: { name: f.str() },
+      relations: () => ({ children: hasMany(children, { foreignKey: 'parentId', dependent: 'destroy' }) })
+    });
+    parents.insertMany([
+      { id: 'parent-1', name: 'doomed' },
+      { id: 'parent-2', name: 'alive' }
+    ]);
+    children.insertMany([
+      { id: 'old-child', parentId: 'parent-1', label: 'stored' },
+      { id: 'other-child', parentId: 'parent-2', label: 'foreign' }
     ]);
 
-    expect(mergeBases).toEqual([undefined, { id: 'right-base' }]);
-  });
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        { kind: 'upsert', model: children.modelId, rows: [{ id: 'new-child', parentId: 'parent-1', label: 'fresh' }] },
+        { kind: 'destroy', model: parents.modelId, ids: ['parent-1'] }
+      ])
+    );
 
-  it('plans dependent destroys against the row overlay and ignores malformed stored identities', () => {
-    const parentModel = 'SpecApplyParent';
-    const childModel = 'SpecApplyChild';
-    const parent = createTargetMock();
-    const child = createTargetMock();
-    parent.rows.set('parent-1', { id: 'parent-1' });
-    child.rows.set('old-child', { id: 'old-child', parentId: 'parent-1' });
-    child.rows.set('malformed-child', { id: 42, parentId: 'parent-1' });
-    registerApplyTarget(parentModel, parent.target);
-    registerApplyTarget(childModel, child.target);
-    const childRef = {
-      modelId: childModel,
-      find: (id: string | null | undefined) => (id == null ? undefined : child.rows.get(String(id))),
-      all: () => [...child.rows.values()],
-      where: (where: Record<string, unknown>) => [...child.rows.values()].filter(row => Object.entries(where).every(([key, value]) => row[key] === value))
-    };
-    const host: RelationHost = {
-      relations: () => ({ children: { kind: 'hasMany', model: childRef, foreignKey: 'parentId', dependent: 'destroy' } }),
-      read: id => parent.rows.get(id),
-      membershipForUpsert: () => [],
-      detachForDestroy: () => []
-    };
-    registerRelationHost(parentModel, host);
-
-    const envelope = createCommitEnvelope([
-      { kind: 'upsert', model: childModel, rows: [{ id: 'new-child', parentId: 'parent-1' }] },
-      { kind: 'destroy', model: childModel, ids: ['old-child'] },
-      { kind: 'destroy', model: parentModel, ids: ['parent-1'] }
-    ]);
-
-    expect(envelope.entityOps).toContainEqual({ kind: 'destroy', model: childModel, ids: ['new-child'] });
-    expect(envelope.entityOps.flatMap(op => (op.kind === 'destroy' ? op.ids : []))).not.toContain('42');
+    expect(parents.find('parent-1')).toBeUndefined();
+    expect(children.find('old-child')).toBeUndefined();
+    expect(children.find('new-child')).toBeUndefined();
+    expect(children.all()).toEqual([{ id: 'other-child', parentId: 'parent-2', label: 'foreign' }]);
   });
 
   it('commits a target that does not expose reactive scopes', () => {
@@ -492,52 +455,34 @@ describe('apply pipeline batching', () => {
     expect(mock.rows.get('row-1')).toEqual({ id: 'row-1' });
   });
 
-  it('[A4] [A12] [W29] runs begin, writes, and commit exactly once per target in one envelope', () => {
-    const firstModel = 'SpecApplyLifecycleFirst';
-    const secondModel = 'SpecApplyLifecycleSecond';
-    const storage = createMemoryPlane();
-    configureDb({ storage, transport: createMockTransport() });
-    type LifecycleOp = 'beginApply' | 'put' | 'commitApply';
-    const instrument = (mock: ReturnType<typeof createTargetMock>) => {
-      const counters: Record<LifecycleOp, number> = { beginApply: 0, put: 0, commitApply: 0 };
-      const events: LifecycleOp[] = [];
-      const record = (op: LifecycleOp): void => {
-        counters[op] += 1;
-        events.push(op);
-      };
-      const basePut = mock.target.put;
-      mock.target.beginApply = () => record('beginApply');
-      mock.target.commitApply = () => record('commitApply');
-      mock.target.put = incoming => {
-        record('put');
-        return basePut(incoming);
-      };
-      return { counters, events };
-    };
-    const first = createTargetMock();
-    const second = createTargetMock();
-    const firstLifecycle = instrument(first);
-    const secondLifecycle = instrument(second);
-    registerApplyTarget(firstModel, first.target);
-    registerApplyTarget(secondModel, second.target);
-    registerModelStoreFactory(firstModel, () =>
-      createModelStore({ modelId: firstModel, now: () => Date.now(), storage, prefix: () => PREFIX, applyWriteGate: (_previous, incoming) => incoming })
-    );
-    registerModelStoreFactory(secondModel, () =>
-      createModelStore({ modelId: secondModel, now: () => Date.now(), storage, prefix: () => PREFIX, applyWriteGate: (_previous, incoming) => incoming })
-    );
-    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus: createCommitBus() });
+  it('[A4] [A12] [W29] applies a multi-op multi-model envelope as one batch: each reader renders once with the final state', () => {
+    setupSpecRuntime();
+    const first = defineModelRuntime({ id: 'SpecApplyLifecycleFirst', name: 'SpecApplyLifecycleFirst', fields: { label: f.str() } });
+    const second = defineModelRuntime({ id: 'SpecApplyLifecycleSecond', name: 'SpecApplyLifecycleSecond', fields: { label: f.str() } });
+    first.insert({ id: 'row-1', label: 'start' });
+    const firstRow = renderCounted(() => first.use.find('row-1'));
+    const firstCount = renderCounted(() => first.use.count());
+    const secondCount = renderCounted(() => second.use.count());
+    const before = { firstRow: firstRow.renders(), firstCount: firstCount.renders(), secondCount: secondCount.renders() };
 
-    runtime.commit(
-      createCommitEnvelope([
-        { kind: 'upsert', model: firstModel, rows: [{ id: 'row-first' }] },
-        { kind: 'upsert', model: secondModel, rows: [{ id: 'row-second' }] }
-      ])
-    );
+    act(() => {
+      getApplyRuntime().commit(
+        createCommitEnvelope([
+          { kind: 'upsert', model: first.modelId, rows: [{ id: 'row-1', label: 'updated' }], origin: 'event' },
+          { kind: 'upsert', model: first.modelId, rows: [{ id: 'row-2', label: 'new' }], origin: 'event' },
+          { kind: 'upsert', model: second.modelId, rows: [{ id: 'other-1', label: 'sibling' }], origin: 'event' }
+        ])
+      );
+    });
 
-    expect(firstLifecycle.counters).toEqual({ beginApply: 1, put: 1, commitApply: 1 });
-    expect(secondLifecycle.counters).toEqual({ beginApply: 1, put: 1, commitApply: 1 });
-    expect(firstLifecycle.events).toEqual(['beginApply', 'put', 'commitApply']);
-    expect(secondLifecycle.events).toEqual(['beginApply', 'put', 'commitApply']);
+    expect(firstRow.renders() - before.firstRow).toBe(1);
+    expect(firstRow.result()).toEqual({ id: 'row-1', label: 'updated' });
+    expect(firstCount.renders() - before.firstCount).toBe(1);
+    expect(firstCount.result()).toBe(2);
+    expect(secondCount.renders() - before.secondCount).toBe(1);
+    expect(secondCount.result()).toBe(1);
+    firstRow.unmount();
+    firstCount.unmount();
+    secondCount.unmount();
   });
 });

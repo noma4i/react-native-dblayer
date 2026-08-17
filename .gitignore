@@ -9,5 +9,4 @@ node_modules/
 coverage/
 *.log
 
-.stryker-tmp
 reports/

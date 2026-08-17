@@ -153,7 +153,6 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       options.useScopeAccess(scopeKey);
       return {
         scopeKey,
-        // Stryker disable next-line StringLiteral: the null-scope fallback key only names an inert engine signature.
         sortMeta: options.applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
         isResolved: () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0
       };

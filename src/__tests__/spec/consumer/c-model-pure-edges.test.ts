@@ -3,45 +3,49 @@ import {
   configureDb,
   createCommitEnvelope,
   createModelNormalization,
-  createModelScopeKeys,
   defineModelRuntime,
   f,
-  firstCompositeKeyPart,
   getApplyRuntime,
   getApplyTarget,
   getInternalModelHandle,
   getInternalScopeHandle,
+  modelRef,
   planModelLanding,
-  planModelLandingWithRoot,
-  readModelField,
-  readQuarantineEntries,
-  registerModelLandingHost,
-  type ModelLandingHost,
-  type WriteOp
+  readQuarantineEntries
 } from '../../testApi';
 import { act } from 'react';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
-
-const createLandingHost = (model: string, sideloads?: ModelLandingHost['sideloads']): ModelLandingHost => ({
-  admitPlanRow: input => {
-    if (typeof input === 'string') return { id: input };
-    const id = (input as { id?: unknown }).id;
-    return typeof id === 'string' ? { id } : undefined;
-  },
-  planOwnRows: (rows, options) => [{ kind: 'upsert', model, rows: rows as Array<Record<string, unknown>>, ...(options?.origin ? { origin: options.origin } : {}) }],
-  sideloads
-});
+import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 describe('model pure helper edges', () => {
   it('applies build defaults and nullable completion without changing sparse reads', () => {
-    const valueDefault = f.str().default('value-default');
-    const factoryDefault = f.str().default(() => 'factory-default');
-    const nullable = f.str().nullable();
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const model = defineModelRuntime({
+      id: 'ModelFieldDefaultEdges',
+      name: 'ModelFieldDefaultEdges',
+      fields: {
+        label: f.str().default('value-default'),
+        stamp: f.str().default(() => 'factory-default'),
+        note: f.str().nullable()
+      }
+    });
 
-    expect(readModelField(valueDefault, {}, 'value', true)).toBe('value-default');
-    expect(readModelField(factoryDefault, {}, 'value', true)).toBe('factory-default');
-    expect(readModelField(nullable, {}, 'value', true)).toBeNull();
-    expect(readModelField(nullable, {}, 'value', false)).toBeUndefined();
+    expect(model.build({ id: 'built-1' } as never)).toEqual({
+      id: 'built-1',
+      label: 'value-default',
+      stamp: 'factory-default',
+      note: null
+    });
+
+    model.insert({ id: 'sparse-1' } as never);
+    expect(model.find('sparse-1')).toEqual({ id: 'sparse-1' });
+
+    model.insert(model.build({ id: 'complete-1' } as never));
+    expect(model.find('complete-1')).toEqual({
+      id: 'complete-1',
+      label: 'value-default',
+      stamp: 'factory-default',
+      note: null
+    });
   });
 
   it('validates write-group and guard declarations before accepting rows', () => {
@@ -108,27 +112,36 @@ describe('model pure helper edges', () => {
     ).toThrow('RuntimeReservedOrderKey field orderKey is reserved by the store plane');
   });
 
-  it('derives scope values without re-reading stored custom fields and normalizes scalar keys', () => {
-    const fields = {
-      ownerId: f.id(),
-      bucket: f.custom<string, { bucket: string }>(input => input.bucket),
-      rawScope: f.str()
-    };
-    const helpers = createModelScopeKeys(
-      { name: 'ScopeKeyEdges', fields },
-      new Map<string, Record<string, string>>([
-        ['byOwner', { owner: 'ownerId' }],
-        ['byBucket', { bucket: 'bucket' }],
-        ['byRaw', { raw: 'missingField' }]
-      ])
-    );
+  it('derives scope keys from stored rows, normalizes scalar values, and rejects incomplete scope values', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const model = defineModelRuntime({
+      id: 'ScopeKeyEdges',
+      name: 'ScopeKeyEdges',
+      fields: {
+        ownerId: f.id(),
+        bucket: f.custom<string, { bucket?: string; bucketSource?: string }>(input => input.bucket ?? input.bucketSource),
+        rawScope: f.str().optional()
+      },
+      scopes: {
+        byOwner: ({ by: { owner: 'ownerId' } }),
+        byBucket: ({ by: { bucket: 'bucket' } }),
+        byRaw: ({ by: { raw: 'rawScope' } }),
+        plainKey: ({ sort: 'server-order' })
+      }
+    });
 
-    expect(helpers.scopeValueFromRow({ bucket: 'bucket' }, { id: 'row-1', bucket: 'stored' })).toEqual({ bucket: 'stored' });
-    expect(helpers.scopeValueFromRow({ raw: 'missingField' }, { id: 'row-1', missingField: 'raw' })).toEqual({ raw: 'raw' });
-    expect(helpers.scopeValueFromRow({ raw: 'missingField' }, { id: 'row-1' })).toBeNull();
-    expect(helpers.keyForScope('byOwner', { owner: 42 })).toContain('"42"');
-    expect(helpers.keyForScope('unknown', 'plain')).toBeDefined();
-    expect(() => helpers.keyForScope('byOwner', {})).toThrow('ScopeKeyEdges.byOwner: scope value must provide owner');
+    model.insert({ id: 'row-1', ownerId: 42, bucketSource: 'alpha', rawScope: 'raw' } as never);
+    model.insert({ id: 'row-2', ownerId: '7', bucketSource: 'alpha' } as never);
+
+    expect(model.find('row-1')).toEqual({ id: 'row-1', ownerId: '42', bucket: 'alpha', rawScope: 'raw' });
+    expect(model.scopes.byOwner.read({ owner: 42 }).map(row => row.id)).toEqual(['row-1']);
+    expect(model.scopes.byBucket.read({ bucket: 'alpha' }).map(row => row.id)).toEqual(['row-1', 'row-2']);
+    expect(model.scopes.byRaw.read({ raw: 'raw' }).map(row => row.id)).toEqual(['row-1']);
+
+    model.scopes.plainKey.seed('plain' as never, [{ id: 'row-3', ownerId: '9', bucketSource: 'beta' } as never]);
+    expect(model.scopes.plainKey.read('plain' as never).map(row => row.id)).toEqual(['row-3']);
+
+    expect(() => model.scopes.byOwner.read({} as never)).toThrow('ScopeKeyEdges.byOwner: scope value must provide owner');
   });
 });
 
@@ -137,42 +150,76 @@ describe('model landing graph edges', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
   });
 
-  it('rejects undefined root and sideload targets', () => {
-    expect(() => planModelLanding('MissingLandingRoot', [{ id: 'row-1' }])).toThrow('Model landing target MissingLandingRoot is not defined');
-
-    const root = 'LandingMissingChildRoot';
-    registerModelLandingHost(
-      root,
-      createLandingHost(root, () => ({
-        child: { model: { key: 'LandingMissingChild' }, select: () => ({ id: 'child-1' }) }
-      }))
+  it('rejects an undefined sideload target and leaves the store untouched', () => {
+    const root = defineModelRuntime(
+      {
+        id: 'LandingMissingChildRoot',
+        name: 'LandingMissingChildRoot',
+        fields: { label: f.str().optional() }
+      },
+      {
+        sideloads: () => ({
+          child: { model: modelRef('LandingMissingChildTarget'), select: input => (input as { child?: unknown }).child ?? null }
+        })
+      }
     );
-    expect(() => planModelLanding(root, [{ id: 'root-1' }])).toThrow('Model landing target LandingMissingChild is not defined');
+
+    expect(() => root.insert({ id: 'root-1', child: { id: 'child-1' } } as never)).toThrow(
+      'Model landing target LandingMissingChildTarget is not defined'
+    );
+    expect(root.all()).toEqual([]);
+
+    root.insert({ id: 'root-2' } as never);
+    expect(root.find('root-2')).toEqual({ id: 'root-2' });
+
+    // Every runtime model with landing registers its host at define time, so an unregistered ROOT
+    // is only reachable by planning against a name no model ever declared.
+    expect(() => planModelLanding('MissingLandingRoot', [{ id: 'row-1' }])).toThrow('Model landing target MissingLandingRoot is not defined');
   });
 
-  it('deduplicates repeated edges, accepts scalar rows, and supports a root planner override', () => {
-    const root = 'LandingGraphRootEdges';
-    const child = 'LandingGraphChildEdges';
-    const shared = { id: 'child-1' };
-    const childRef = { modelId: child, find: () => undefined, all: () => [], where: () => [] };
-    registerModelLandingHost(child, createLandingHost(child));
-    registerModelLandingHost(
-      root,
-      createLandingHost(root, () => ({
-        many: { model: { key: child }, select: input => (typeof input === 'string' ? null : [shared, shared, null]) },
-        one: { model: childRef, select: () => shared }
-      }))
+  it('deduplicates a cyclic landing graph, accepts scalar rows, and routes replace through the root planner override', () => {
+    const children = defineModelRuntime(
+      {
+        id: 'LandingGraphChildEdges',
+        name: 'LandingGraphChildEdges',
+        fields: { label: f.str().optional() }
+      },
+      {
+        sideloads: () => ({
+          parent: { model: modelRef('LandingGraphRootEdges'), select: input => (input as { parent?: unknown }).parent ?? null }
+        })
+      }
     );
-    const planRoot = jest.fn(
-      (rows: unknown[], options?: { origin?: 'event' }): WriteOp[] => [
-        { kind: 'upsert', model: root, rows: rows as Array<Record<string, unknown>>, ...(options?.origin ? { origin: options.origin } : {}) }
-      ]
+    const root = defineModelRuntime(
+      {
+        id: 'LandingGraphRootEdges',
+        name: 'LandingGraphRootEdges',
+        fields: { label: f.str().optional() },
+        rowId: (input: unknown) => (typeof input === 'string' ? input : undefined)
+      },
+      {
+        sideloads: () => ({
+          children: {
+            model: modelRef('LandingGraphChildEdges'),
+            select: input => (typeof input === 'object' && input !== null ? ((input as { children?: unknown[] }).children ?? null) : null)
+          }
+        })
+      }
     );
+    const childInput: Record<string, unknown> = { id: 'child-1', label: 'first' };
+    const rootInput: Record<string, unknown> = { id: 'root-1', label: 'root', children: [childInput, childInput, null] };
+    childInput.parent = rootInput;
 
-    const plan = planModelLandingWithRoot(root, ['root-scalar', { id: 'root-1' }], planRoot, { origin: 'event' });
+    root.insertMany(['root-scalar', rootInput] as never[]);
+    expect(root.find('root-scalar')).toEqual({ id: 'root-scalar' });
+    expect(root.find('root-1')).toEqual({ id: 'root-1', label: 'root' });
+    expect(children.all()).toEqual([{ id: 'child-1', label: 'first' }]);
 
-    expect(planRoot).toHaveBeenCalledWith(['root-scalar', { id: 'root-1' }], { origin: 'event' });
-    expect(plan).toContainEqual({ kind: 'upsert', model: child, rows: [shared], origin: 'event' });
+    root.replace('root-1', { id: 'root-2', label: 'replaced', children: [{ id: 'child-2', label: 'second' }] } as never);
+    expect(root.find('root-1')).toBeUndefined();
+    expect(root.find('root-2')).toEqual({ id: 'root-2', label: 'replaced' });
+    expect(children.find('child-2')).toEqual({ id: 'child-2', label: 'second' });
+    expect(children.all().map(row => row.id).sort()).toEqual(['child-1', 'child-2']);
   });
 });
 
@@ -199,7 +246,7 @@ describe('model write planning edges', () => {
     expect(model.all()).toEqual([]);
   });
 
-  it('restores captured memberships under the normalized replacement id and ignores a missing patch row', () => {
+  it('restores captured memberships in place under the normalized replacement id and ignores a missing patch row', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const model = defineModelRuntime({
       id: 'ModelWritePlanningEdges',
@@ -207,26 +254,32 @@ describe('model write planning edges', () => {
       fields: { bucket: f.str(), label: f.str() },
       scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
     });
-    model.scopes.byBucket.seed({ bucket: 'a' }, [{ id: 'old-id', bucket: 'a', label: 'old' }]);
-    const handle = getInternalModelHandle(model);
-    const memberships = handle.captureMembership('old-id');
-
-    expect(handle.readRow('old-id')).toMatchObject({ id: 'old-id', label: 'old' });
-    handle.applyRows([{ id: 'applied-id', bucket: 'b', label: 'applied' }]);
-    expect(model.find('applied-id')).toMatchObject({ id: 'applied-id', label: 'applied' });
-    expect(handle.planRestore({ id: 'new-id', bucket: 'a', label: 'new' }, memberships)).toEqual([
-      { kind: 'upsert', model: model.modelId, rows: [{ id: 'new-id', bucket: 'a', label: 'new' }], origin: 'event' },
-      {
-        kind: 'scope-delta',
-        model: model.modelId,
-        scopeKey: memberships[0]!.scopeKey,
-        append: [{ id: 'new-id', orderKey: memberships[0]!.orderKey }],
-        detach: ['old-id']
-      }
+    model.scopes.byBucket.seed({ bucket: 'a' }, [
+      { id: 'temp-1', bucket: 'a', label: 'old' },
+      { id: 'keep-1', bucket: 'a', label: 'kept' }
     ]);
+    const reader = renderCounted(() => model.scopes.byBucket.use({ bucket: 'a' }));
+    expect(reader.result().map(row => row.id)).toEqual(['temp-1', 'keep-1']);
 
-    handle.applyPatch('missing', { label: 'ignored' });
+    act(() => {
+      model.replace('temp-1', { id: 42, bucket: 'a', label: 'server' } as never);
+    });
+    expect(model.find('temp-1')).toBeUndefined();
+    expect(model.find('42')).toEqual({ id: '42', bucket: 'a', label: 'server' });
+    // The replacement keeps the captured slot: it lands ahead of keep-1, not appended at the tail.
+    expect(reader.result().map(row => row.id)).toEqual(['42', 'keep-1']);
+
+    act(() => {
+      model.update('missing', { label: 'ignored' });
+    });
     expect(model.find('missing')).toBeUndefined();
+    expect(model.all().map(row => row.id).sort()).toEqual(['42', 'keep-1']);
+
+    act(() => {
+      model.update('42', { label: 'patched' });
+    });
+    expect(model.find('42')).toEqual({ id: '42', bucket: 'a', label: 'patched' });
+    reader.unmount();
   });
 
   it('keeps a same-id membership when restoring a captured row', async () => {
@@ -265,47 +318,94 @@ describe('model write planning edges', () => {
     });
   });
 
-  it('classifies scope order dependencies and acknowledges both persistence planes', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+  it('repositions scope entries only when a patched field participates in the scope order', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
     const model = defineModelRuntime({
-      id: 'ModelApplyTargetEdges',
-      name: 'ModelApplyTargetEdges',
+      id: 'ModelScopeOrderEdges',
+      name: 'ModelScopeOrderEdges',
       fields: { bucket: f.str(), rank: f.num(), label: f.str() },
       scopes: {
         field: ({ by: { bucket: 'bucket' }, sort: { field: 'rank', dir: 'asc' } }),
         multi: ({ sort: [{ field: 'rank', dir: 'asc' }, { field: 'label', dir: 'desc' }] }),
-        knownComparator: ({
-          sort: {
-            comparator: (left, right) => left.rank - right.rank,
-            orderFields: ['rank']
-          }
-        }),
-        unknownComparator: ({ sort: { comparator: (left, right) => left.rank - right.rank } })
+        knownComparator: ({ sort: { comparator: (left, right) => left.rank - right.rank, orderFields: ['rank'] } }),
+        unknownComparator: ({ sort: { comparator: (left, right) => String(left.label).localeCompare(String(right.label)) } })
       }
     });
-    const row = { id: 'row-1', bucket: 'bucket-1', rank: 1, label: 'one' };
-    model.scopes.field.seed({ bucket: 'bucket-1' }, [row]);
-    model.scopes.multi.seed({}, [row]);
-    model.scopes.knownComparator.seed({}, [row]);
-    model.scopes.unknownComparator.seed({}, [row]);
+    model.scopes.field.seed({ bucket: 'a' }, [
+      { id: 'r-1', bucket: 'a', rank: 1, label: 'x' },
+      { id: 'r-2', bucket: 'a', rank: 2, label: 'x' }
+    ]);
+    model.scopes.multi.seed({}, [
+      { id: 'm-1', bucket: 'm', rank: 1, label: 'aa' },
+      { id: 'm-2', bucket: 'm', rank: 1, label: 'bb' }
+    ]);
+    model.scopes.knownComparator.seed({}, [
+      { id: 'k-1', bucket: 'k', rank: 1, label: 'aa' },
+      { id: 'k-2', bucket: 'k', rank: 2, label: 'bb' }
+    ]);
+    model.scopes.unknownComparator.seed({}, [
+      { id: 'u-1', bucket: 'u', rank: 1, label: 'aa' },
+      { id: 'u-2', bucket: 'u', rank: 1, label: 'bb' }
+    ]);
+    const fieldReader = renderCounted(() => model.scopes.field.use({ bucket: 'a' }));
+    const multiReader = renderCounted(() => model.scopes.multi.use({}));
+    const knownReader = renderCounted(() => model.scopes.knownComparator.use({}));
+    const unknownReader = renderCounted(() => model.scopes.unknownComparator.use({}));
+    expect(fieldReader.result().map(row => row.id)).toEqual(['r-1', 'r-2']);
+    expect(multiReader.result().map(row => row.id)).toEqual(['m-2', 'm-1']);
+    expect(knownReader.result().map(row => row.id)).toEqual(['k-1', 'k-2']);
+    expect(unknownReader.result().map(row => row.id)).toEqual(['u-1', 'u-2']);
+
+    act(() => {
+      model.update('r-1', { rank: 3 });
+    });
+    expect(fieldReader.result().map(row => row.id)).toEqual(['r-2', 'r-1']);
+    act(() => {
+      model.update('r-1', { label: 'y' });
+    });
+    expect(fieldReader.result().map(row => row.id)).toEqual(['r-2', 'r-1']);
+    act(() => {
+      model.update('m-1', { label: 'zz' });
+    });
+    expect(multiReader.result().map(row => row.id)).toEqual(['m-1', 'm-2']);
+    act(() => {
+      model.update('k-1', { rank: 3 });
+    });
+    expect(knownReader.result().map(row => row.id)).toEqual(['k-2', 'k-1']);
+    act(() => {
+      model.update('k-2', { label: 'other' });
+    });
+    expect(knownReader.result().map(row => row.id)).toEqual(['k-2', 'k-1']);
+    act(() => {
+      model.update('u-1', { label: 'cc' });
+    });
+    expect(unknownReader.result().map(row => row.id)).toEqual(['u-2', 'u-1']);
+    fieldReader.unmount();
+    multiReader.unmount();
+    knownReader.unmount();
+    unknownReader.unmount();
+
+    // Both persistence planes acknowledge the repositioned state: the flushed snapshots carry the
+    // patched row value and the scope entry order the patches produced.
+    await settle(3, { macro: true });
+    const decodedPayload = (key: string): unknown => JSON.parse(storage.get(key)!).payload;
+    const rowKey = storage.snapshotKeys().find(key => key.startsWith('dbl:row:') && key.includes('ModelScopeOrderEdges') && key.includes('r-1'))!;
+    expect(decodedPayload(rowKey)).toEqual({ id: 'r-1', bucket: 'a', rank: 3, label: 'y' });
+    const scopeEntryIds = (scopeName: string): string[] => {
+      const scopeStorageKey = storage.snapshotKeys().find(key => key.startsWith('dbl:scope:') && key.includes('ModelScopeOrderEdges') && key.includes(scopeName))!;
+      return (decodedPayload(scopeStorageKey) as { entries: Array<{ id: string }> }).entries.map(entry => entry.id);
+    };
+    expect(scopeEntryIds('field')).toEqual(['r-2', 'r-1']);
+    expect(scopeEntryIds('multi')).toEqual(['m-1', 'm-2']);
+    expect(scopeEntryIds('knownComparator')).toEqual(['k-2', 'k-1']);
+    expect(scopeEntryIds('unknownComparator')).toEqual(['u-2', 'u-1']);
+
+    // Scope keys always derive from declared scope names, so a spec-less scope key cannot be
+    // produced by any public write; the missing-spec guard is checked directly.
     const target = getApplyTarget(model.modelId);
-    const keys = Object.fromEntries(target.readAllScopeKeys().map(scopeKey => [firstCompositeKeyPart(scopeKey), scopeKey]));
-
-    expect(target.scopeOrderAffected(keys.field!, 'row-1', null)).toBe(true);
-    expect(target.scopeOrderAffected(keys.field!, 'missing', ['label'])).toBe(true);
-    expect(target.scopeOrderAffected(keys.field!, 'row-1', ['bucket'])).toBe(true);
-    expect(target.scopeOrderAffected(keys.field!, 'row-1', ['label'])).toBe(false);
-    expect(target.scopeOrderAffected(keys.multi!, 'row-1', ['label'])).toBe(true);
-    expect(target.scopeOrderAffected(keys.knownComparator!, 'row-1', ['label'])).toBe(false);
-    expect(target.scopeOrderAffected(keys.knownComparator!, 'row-1', ['rank'])).toBe(true);
-    expect(target.scopeOrderAffected(keys.unknownComparator!, 'row-1', ['label'])).toBe(true);
-
-    const unknownKey = '7:unknown1:x';
-    target.scope(unknownKey, { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'a' }] });
-    expect(target.scopeOrderAffected(unknownKey, 'row-1', ['rank'])).toBe(false);
-    expect(target.persistEntries()).not.toEqual([]);
-    target.ackPersist();
-    expect(target.persistEntries()).toEqual([]);
+    target.scope('7:unknown1:x', { generation: 1, coverage: 'complete', entries: [{ id: 'r-1', orderKey: 'a' }] });
+    expect(target.scopeOrderAffected('7:unknown1:x', 'r-1', ['rank'])).toBe(false);
   });
 
   it('rejects statics that collide with the base model surface', () => {

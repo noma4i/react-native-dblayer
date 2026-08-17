@@ -10,10 +10,9 @@ import {
   registerBootValidation,
   runBootValidations,
   setFetchNetworkOnline,
-  invalidateModel,
-  registerModelInvalidation
+  invalidateModel
 } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 type ResetData = { ok: boolean };
 type ResetVariables = Record<string, never>;
@@ -63,28 +62,53 @@ describe('reset and definition registries', () => {
     reader.unmount();
   });
 
-  it('replaces the invalidation callback when the same definition registers again', () => {
-    const calls: string[] = [];
-    registerModelInvalidation('SpecResetInvalidation', 'probe-query', () => calls.push('first') > 0);
-    registerModelInvalidation('SpecResetInvalidation', 'probe-query', () => calls.push('second') > 0);
+  it('invalidates a model through the declaration that registered last', async () => {
+    let served = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        served += 1;
+        return { data: { ok: served % 2 === 1 } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const InvalidationModel = defineModel('SpecResetInvalidation', {
+      schema: ResetSchema,
+      relations: owner => ({
+        result: {
+          remote: owner.gql.single(resetDocument, {
+            variables: () => ({}),
+            select: data => ({ id: 'invalidation-probe', ok: data.ok })
+          })
+        }
+      })
+    });
+    const relation = InvalidationModel.result({});
+    const reader = renderCounted(() => relation.use());
+    await settle();
+    expect(transport.calls).toHaveLength(1);
+    expect(reader.result().data).toEqual({ id: 'invalidation-probe', ok: true });
 
-    invalidateModel('SpecResetInvalidation');
-
-    expect(calls).toEqual(['second']);
+    // Invalidating the model reaches the live declaration: it refetches and the reader serves the new value.
+    act(() => {
+      invalidateModel('SpecResetInvalidation');
+    });
+    await settle();
+    expect(transport.calls).toHaveLength(2);
+    expect(reader.result().data).toEqual({ id: 'invalidation-probe', ok: false });
+    reader.unmount();
   });
 
   it('[A7] runs boot validations declared before a reset on the next boot', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    let ran = 0;
     registerBootValidation('reset-probe', () => {
-      ran += 1;
+      throw new Error('reset-probe rejected this declaration');
     });
 
     act(() => {
       resetRuntime();
     });
-    runBootValidations();
 
-    expect(ran).toBe(1);
+    // The declaration outlives the reset, so its verdict still reaches the next boot.
+    expect(() => runBootValidations()).toThrow('reset-probe rejected this declaration');
   });
 });

@@ -23,7 +23,7 @@ describe('model reactive edge contracts', () => {
     expect(() => Rows.build('invalid' as never)).toThrow('requires id');
   });
 
-  it('keeps the facade hook order stable across null-scope flips and data arrival', () => {
+  it('keeps the facade hook order stable and its values exact across null-scope flips and data arrival', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const Rows = defineModelRuntime({
       id: 'SpecModelReactiveHookOrder',
@@ -31,29 +31,40 @@ describe('model reactive edge contracts', () => {
       fields: { value: f.str(), bucket: f.str() },
       scopes: { byBucket: { by: { bucket: 'bucket' } } }
     });
-    let renders = 0;
+    type Observed = { scopeIds: string[]; count: number; findId: string | undefined; firstId: string | undefined; failed: boolean };
+    let latest!: Observed;
     // Every facade read hook in one component: a conditional hook anywhere below would make
     // React throw "Rendered more/fewer hooks than during the previous render" on any flip.
     const Reader = ({ phase }: { phase: number }) => {
-      renders += 1;
-      Rows.scopes.byBucket.use(phase % 2 === 0 ? null : { bucket: 'a' });
-      Rows.scopes.byBucket.useCount(phase % 2 === 0 ? null : { bucket: 'a' });
-      Rows.use.find(phase % 2 === 0 ? 'row-1' : 'missing');
-      Rows.use.first(phase % 2 === 0 ? { value: 'seed' } : { value: 'other' });
-      Rows.use.failed(phase % 2 === 0 ? 'row-1' : 'missing');
+      const scopeRows = Rows.scopes.byBucket.use(phase % 2 === 0 ? null : { bucket: 'a' });
+      const count = Rows.scopes.byBucket.useCount(phase % 2 === 0 ? null : { bucket: 'a' });
+      const found = Rows.use.find(phase % 2 === 0 ? 'row-1' : 'missing');
+      const first = Rows.use.first(phase % 2 === 0 ? { value: 'seed' } : { value: 'other' });
+      const failed = Rows.use.failed(phase % 2 === 0 ? 'row-1' : 'missing');
+      latest = { scopeIds: scopeRows.map(row => row.id), count, findId: found?.id, firstId: first?.id, failed };
       return null;
     };
+    const seeded = { id: 'row-1', value: 'seed', bucket: 'a' };
+    const expectedByPhase: Observed[] = [
+      { scopeIds: [], count: 0, findId: undefined, firstId: undefined, failed: false },
+      { scopeIds: [], count: 0, findId: undefined, firstId: undefined, failed: false },
+      { scopeIds: [], count: 0, findId: 'row-1', firstId: 'row-1', failed: false },
+      { scopeIds: ['row-1'], count: 1, findId: undefined, firstId: undefined, failed: false },
+      { scopeIds: [], count: 0, findId: 'row-1', firstId: 'row-1', failed: false }
+    ];
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = TestRenderer.create(React.createElement(Reader, { phase: 0 }));
     });
+    expect(latest).toEqual(expectedByPhase[0]);
     for (let phase = 1; phase <= 4; phase += 1) {
       act(() => {
-        if (phase === 2) Rows.insert({ id: 'row-1', value: 'seed', bucket: 'a' });
+        if (phase === 2) Rows.insert(seeded);
         root.update(React.createElement(Reader, { phase }));
       });
+      expect(latest).toEqual(expectedByPhase[phase]);
     }
-    expect(renders).toBeGreaterThanOrEqual(5);
+    expect(Rows.find('row-1')).toEqual(seeded);
     act(() => root.unmount());
   });
 

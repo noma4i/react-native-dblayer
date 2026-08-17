@@ -27,16 +27,26 @@ const createPlane = (storage: StoragePlane = createMemoryPlane(), now: () => num
 };
 
 describe('entity plane edges', () => {
-  it('removes virtual collection properties from an enriched row', () => {
-    const clean = createRowCleaner();
-    const enriched = { id: 'row-1', label: 'clean', $meta: { source: 'collection' } };
-    const first = clean(enriched);
+  it('keeps committed plane reads free of virtual collection properties and referentially stable', () => {
+    const { plane } = createPlane();
+    const written = { id: 'row-1', label: 'clean' };
+    plane.put(written);
 
-    expect(first).toEqual({
-      id: 'row-1',
-      label: 'clean'
-    });
-    expect(clean(enriched)).toBe(first);
+    // The committed read is exactly the written row: no `$`-prefixed collection enrichment leaks
+    // out, and repeated reads return the same object identity.
+    const first = plane.readCommitted('row-1')!;
+    expect(first).toStrictEqual(written);
+    expect(Object.keys(first)).toEqual(['id', 'label']);
+    expect(plane.readCommitted('row-1')).toBe(first);
+    expect(plane.values()).toEqual([written]);
+
+    // The cache-miss filtering branch is unreachable through plane reads (every write and hydrate
+    // primes the clean-row cache first), so its literal output is asserted on the cleaner directly.
+    const clean = createRowCleaner();
+    const enriched = { id: 'row-2', label: 'enriched', $meta: { source: 'collection' } };
+    const cleaned = clean(enriched);
+    expect(cleaned).toStrictEqual({ id: 'row-2', label: 'enriched' });
+    expect(clean(enriched)).toBe(cleaned);
   });
 
   it('updates and deletes committed rows while ignoring a repeated delete', () => {

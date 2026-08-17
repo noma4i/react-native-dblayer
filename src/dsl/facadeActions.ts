@@ -17,6 +17,7 @@ import { readRowOperationState, useRowOperationState } from './rowOperationState
 import { getInternalModelHandle } from '../core/internalHandles';
 import { hasDependentCascade } from '../core/relations';
 import { compileModelRootPlan, modelRootIntentOf } from './modelRootPlan';
+import { registerOptimisticInsertPlanner } from './optimisticInsertPlanners';
 import { registerMutationCorrelator } from './mutationCorrelation';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { getApplyRuntime, getOperationState, getRuntimeGeneration } from './configure';
@@ -365,6 +366,9 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
       rollbackMemberships: getInternalModelHandle(runtime).captureMembership(id)
     };
   };
+  if (requestDefinition.optimistic && modelRootIntentOf(requestDefinition.optimistic.root) === 'insert') {
+    registerOptimisticInsertPlanner(runtime.modelId, actionKey, (input, tempId, operationId) => buildOptimisticPlan(input as ActionInput<TDefinition>, tempId, operationId, false).ops);
+  }
   const runRequestExecution = async (operationId: string, tempId: string | null, input: ActionInput<TDefinition>, tracked: boolean): Promise<ActionPayload<TDefinition> | null> => {
     const generationFence = createGenerationFence({ generation: getRuntimeGeneration() });
     const record = tracked ? currentRequestRecord(operationId, tempId) : undefined;

@@ -147,10 +147,14 @@ describe('model store', () => {
     unsubscribe();
   });
 
-  it('[W44] drains every completion when an earlier completion throws', () => {
+  it('[W44] drains every completion when an earlier completion throws and keeps serving afterwards', () => {
+    const store = buildStore();
+    store.upsert({ id: 'row-1', label: 'first' });
+    store.markReady();
     const order: string[] = [];
     expect(() =>
       runInStoreTransaction(() => {
+        store.upsert({ id: 'row-2', label: 'second' });
         afterStoreTransaction(() => {
           order.push('first');
           throw new Error('first completion failed');
@@ -165,6 +169,14 @@ describe('model store', () => {
     ).toThrow(/^first completion failed$/);
 
     expect(order).toEqual(['first', 'second', 'third']);
+    // The rows of the transaction are readable and the store still takes the next write: a thrown
+    // completion is not allowed to leave the store poisoned.
+    expect(store.values().map(row => [row.id, row.label])).toEqual([
+      ['row-1', 'first'],
+      ['row-2', 'second']
+    ]);
+    store.upsert({ id: 'row-3', label: 'third' });
+    expect(store.values().map(row => row.id)).toEqual(['row-1', 'row-2', 'row-3']);
   });
 
   it('[W43] skips membership entries with no entity row, counts the misses, and does not throw', () => {
@@ -384,10 +396,11 @@ describe('model store', () => {
 
   it('forwards tombstone pruning and rejects reads for an unregistered model', () => {
     let now = 0;
+    const storage = createMemoryPlane();
     const store = createModelStore<Row>({
       modelId: `SpecStorePrune${(storeTag += 1)}`,
       now: () => now,
-      storage: createMemoryPlane(),
+      storage,
       prefix: () => 'spec-store:',
       applyWriteGate: (_previous, incoming) => incoming
     });
@@ -396,23 +409,29 @@ describe('model store', () => {
     now = 24 * 60 * 60 * 1000 + 1;
 
     expect(store.pruneTombstones()).toBe(1);
+    // The pruned tombstone is gone from the plane, so nothing about row-1 is carried into the next boot.
+    expect(storage.snapshotKeys().filter(key => key.includes('row-1'))).toEqual([]);
+    expect(store.pruneTombstones()).toBe(0);
+    expect(store.read('row-1')).toBeUndefined();
     expect(() => storeScopeCollection('SpecStoreMissing', 'scope-1')).toThrow('No store registered for model SpecStoreMissing');
   });
 
-  it('publishes a row-only batch without allocating scope changes', () => {
+  it('publishes a row-only batch with no scope changes and leaves the row readable', () => {
     const modelId = `SpecStoreContract${storeTag + 1}`;
-    buildStore();
-    const publish = jest.fn();
-    publishProjectedBatch(
-      { publish },
-      () => ({
-        rows: [{ model: modelId, id: 'row-1', fields: null, kind: 'upsert' }],
-        scopes: [],
-        mode: 'delta'
-      })
-    );
+    const store = buildStore();
+    store.upsert({ id: 'row-1', label: 'published' });
+    store.markReady();
+    const published: Array<{ rows: unknown[]; scopeChanges?: unknown[] }> = [];
+    publishProjectedBatch({ publish: batch => published.push(batch as never) }, () => ({
+      rows: [{ model: modelId, id: 'row-1', fields: null, kind: 'upsert' }],
+      scopes: [],
+      mode: 'delta'
+    }));
 
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(published).toHaveLength(1);
+    expect(published[0]!.rows).toEqual([{ model: modelId, id: 'row-1', fields: null, kind: 'upsert' }]);
+    expect(published[0]!.scopeChanges ?? []).toEqual([]);
+    expect(store.read('row-1')).toMatchObject({ id: 'row-1', label: 'published' });
   });
 
   it('runs store completion immediately outside a boundary and after the outermost boundary', () => {

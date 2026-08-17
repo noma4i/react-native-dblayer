@@ -14,6 +14,8 @@ echo "pre-commit: spec markers"
 node scripts/check-spec-markers.mjs
 echo "pre-commit: silent drops"
 node scripts/check-silent-drops.mjs
+echo "pre-commit: probative asserts"
+node scripts/check-probative-asserts.mjs
 
 echo "pre-commit: build artifacts"
 yarn check:build

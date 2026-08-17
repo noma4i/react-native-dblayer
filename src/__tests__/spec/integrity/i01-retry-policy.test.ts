@@ -306,6 +306,29 @@ describe('query retry policy', () => {
     await pending;
 
     expect(onSyncError).not.toHaveBeenCalled();
+
+    // The positive counterpart: the SAME failure inside a live generation is reported with its payload.
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: () =>
+          new Promise((_resolve, reject) => {
+            rejectRequest = reject;
+          })
+      }),
+      defaults: { onSyncError }
+    });
+    const live = createValueRelation('ErrorResetFenceRelationLive');
+    const livePending = live.fetch().then(
+      () => null,
+      error => error
+    );
+    await Promise.resolve();
+    rejectRequest(new Error('live relation failure'));
+    await livePending;
+
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+    expect(onSyncError.mock.calls[0]![0]).toMatchObject({ message: 'live relation failure' });
   });
 
   it('does not write stale relation pause state into the fresh generation', async () => {

@@ -217,12 +217,14 @@ describe('model live subscription registry', () => {
     act(() => root.unmount());
   });
 
-  it('[S9] shares one transport subscription across duplicate active mounts and tears down on the last unmount', () => {
+  it('[S9] delivers through one shared subscription across duplicate active mounts and stops delivery after the last unmount', () => {
     const document = makeDocument();
     const variables = { roomId: 'room-2' };
     const { transport, subscribers } = createTransport();
     configureDb({ storage: createMemoryPlane(), transport });
-    createModel('RegistryDuplicate', document, variables);
+    const model = createModel('RegistryDuplicate', document, variables);
+    const seen: LivePayload[] = [];
+    const unsubscribe = registerCleanup(model.events.changed.subscribe(payloadValue => seen.push(payloadValue)));
 
     let first!: TestRenderer.ReactTestRenderer;
     let second!: TestRenderer.ReactTestRenderer;
@@ -232,21 +234,38 @@ describe('model live subscription registry', () => {
     });
 
     const subscriber = subscriberFor(subscribers, variables);
+    const firstPayload = payload('duplicate-first', 1);
+    act(() => subscriber.handlers.next({ payloadAlias: firstPayload }));
+    expect(seen).toEqual([firstPayload]);
+    expect(model.find('duplicate-first')).toEqual(firstPayload.message);
+
     act(() => first.unmount());
-    expect(subscriber.unsubscribe).not.toHaveBeenCalled();
+    const secondPayload = payload('duplicate-second', 2);
+    act(() => subscriber.handlers.next({ payloadAlias: secondPayload }));
+    expect(seen).toEqual([firstPayload, secondPayload]);
+    expect(model.find('duplicate-second')).toEqual(secondPayload.message);
+
     act(() => second.unmount());
     expect(subscriber.unsubscribe).toHaveBeenCalledTimes(1);
+    act(() => subscriber.handlers.next({ payloadAlias: payload('duplicate-third', 3) }));
+    expect(seen).toEqual([firstPayload, secondPayload]);
+    expect(model.find('duplicate-third')).toBeUndefined();
+    unsubscribe();
   });
 
-  it('makes owner and presentation teardown idempotent', () => {
+  it('delivers before teardown and keeps repeated owner and presentation teardown silent afterwards', () => {
     const document = makeDocument();
     const variables = { roomId: 'room-idempotent-teardown' };
     const { transport, subscribers } = createTransport();
     configureDb({ storage: createMemoryPlane(), transport });
     const registration = registerModelEvent(createRegistryRegistration('RegistryIdempotentTeardown', document, variables));
-    const unsubscribe = registration.subscribe(jest.fn());
+    const seen: LivePayload[] = [];
+    const unsubscribe = registration.subscribe(payloadValue => seen.push(payloadValue));
     const release = acquireModelSubscriptions();
     const subscriber = subscriberFor(subscribers, variables);
+    const activePayload = payload('idempotent-active', 1);
+    act(() => subscriber.handlers.next({ payloadAlias: activePayload }));
+    expect(seen).toEqual([activePayload]);
 
     unsubscribe();
     unsubscribe();
@@ -254,6 +273,8 @@ describe('model live subscription registry', () => {
     release();
 
     expect(subscriber.unsubscribe).toHaveBeenCalledTimes(1);
+    act(() => subscriber.handlers.next({ payloadAlias: payload('idempotent-after', 2) }));
+    expect(seen).toEqual([activePayload]);
   });
 
   it('rejects a same-generation duplicate declaration before changing the slot', () => {
@@ -658,77 +679,114 @@ describe('model live subscription registry', () => {
     release();
   });
 
-  it('rebinds an active declaration to a new configured transport', () => {
+  it('rebinds an active declaration to a new configured transport and delivers only through the new one', () => {
     const document = makeDocument();
     const variables = { roomId: 'room-6' };
     const first = createTransport();
     configureDb({ storage: createMemoryPlane(), transport: first.transport });
-    createModel('RegistryRebind', document, variables);
+    const model = createModel('RegistryRebind', document, variables);
+    const seen: LivePayload[] = [];
+    const unsubscribe = registerCleanup(model.events.changed.subscribe(payloadValue => seen.push(payloadValue)));
 
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = renderActivation(true);
     });
     const firstSubscriber = subscriberFor(first.subscribers, variables);
+    const beforeRebind = payload('rebind-before', 1);
+    act(() => firstSubscriber.handlers.next({ payloadAlias: beforeRebind }));
+    expect(seen).toEqual([beforeRebind]);
+    expect(model.find('rebind-before')).toEqual(beforeRebind.message);
 
     const second = createTransport();
     act(() => {
       configureDb({ storage: createMemoryPlane(), transport: second.transport });
     });
 
-    expect(firstSubscriber.unsubscribe).toHaveBeenCalledTimes(1);
-    subscriberFor(second.subscribers, variables);
+    const secondSubscriber = subscriberFor(second.subscribers, variables);
+    expect(secondSubscriber.options.query).toBe(document);
+    expect(secondSubscriber.options.variables).toBe(variables);
+
+    act(() => firstSubscriber.handlers.next({ payloadAlias: payload('rebind-stale', 2) }));
+    expect(seen).toEqual([beforeRebind]);
+    expect(model.find('rebind-stale')).toBeUndefined();
+
+    const afterRebind = payload('rebind-after', 3);
+    act(() => secondSubscriber.handlers.next({ payloadAlias: afterRebind }));
+    expect(seen).toEqual([beforeRebind, afterRebind]);
+    expect(model.find('rebind-after')).toEqual(afterRebind.message);
     act(() => root.unmount());
+    unsubscribe();
   });
 
-  it('cancels pending debounce delivery when the last active owner unmounts', () => {
+  it('flushes debounced delivery while active and cancels the pending flush when the last active owner unmounts', () => {
     jest.useFakeTimers();
     const document = makeDocument();
     const variables = { roomId: 'room-7' };
     const { transport, subscribers } = createTransport();
     configureDb({ storage: createMemoryPlane(), transport });
     const model = createModel('RegistryDebounce', document, variables, { ms: 100 });
-    const listener = jest.fn();
-    const unsubscribe = registerCleanup(model.events.changed.subscribe(listener));
+    const seen: LivePayload[] = [];
+    const unsubscribe = registerCleanup(model.events.changed.subscribe(payloadValue => seen.push(payloadValue)));
 
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = renderActivation(true);
     });
     const subscriber = subscriberFor(subscribers, variables);
-    act(() => subscriber.handlers.next({ payloadAlias: payload('debounced', 1) }));
-    expect(listener).not.toHaveBeenCalled();
+    const flushedPayload = payload('debounce-flushed', 1);
+    act(() => subscriber.handlers.next({ payloadAlias: flushedPayload }));
+    expect(seen).toEqual([]);
+    act(() => jest.advanceTimersByTime(100));
+    expect(seen).toEqual([flushedPayload]);
+    expect(model.find('debounce-flushed')).toEqual(flushedPayload.message);
 
+    act(() => subscriber.handlers.next({ payloadAlias: payload('debounce-canceled', 2) }));
     act(() => root.unmount());
     act(() => jest.advanceTimersByTime(100));
-    expect(listener).not.toHaveBeenCalled();
+    expect(seen).toEqual([flushedPayload]);
+    expect(model.find('debounce-canceled')).toBeUndefined();
     unsubscribe();
   });
 
-  it('cancels pending retry when the last active owner unmounts', () => {
+  it('retries an errored subscription while active and cancels the pending retry when the last active owner unmounts', () => {
     jest.useFakeTimers();
-    const retryAttempts = jest.fn();
+    const recoverVariables = { roomId: 'room-8-recover' };
+    const cancelVariables = { roomId: 'room-8-cancel' };
     const onSubscribe = (handlers: Subscriber['handlers'], options: Subscriber['options']) => {
-      if ((options.variables as LiveVariables | undefined)?.roomId !== 'room-8') return;
-      retryAttempts();
-      handlers.error(new Error('retry'));
+      const roomId = (options.variables as LiveVariables | undefined)?.roomId;
+      if (roomId === 'room-8-cancel') handlers.error(new Error('retry cancel'));
+      if (roomId === 'room-8-recover' && subscribersFor(recoverVariables).length === 1) handlers.error(new Error('retry recover'));
     };
     const { transport, subscribers } = createTransport(onSubscribe);
+    const subscribersFor = (variables: LiveVariables) => subscribers.filter(subscriber => subscriber.options.variables === variables);
     const document = makeDocument();
-    const variables = { roomId: 'room-8' };
     configureDb({ storage: createMemoryPlane(), transport });
-    createModel('RegistryRetry', document, variables);
+    const recoverModel = createModel('RegistryRetryRecover', document, recoverVariables);
+    createModel('RegistryRetryCancel', document, cancelVariables);
+    const seen: LivePayload[] = [];
+    const unsubscribe = registerCleanup(recoverModel.events.changed.subscribe(payloadValue => seen.push(payloadValue)));
 
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = renderActivation(true);
     });
-    subscriberFor(subscribers, variables);
+    expect(subscribersFor(recoverVariables)).toHaveLength(1);
+    expect(subscribersFor(cancelVariables)).toHaveLength(1);
 
-    act(() => root.unmount());
     act(() => jest.advanceTimersByTime(1000));
-    expect(subscriberFor(subscribers, variables)).toBeDefined();
-    expect(retryAttempts).toHaveBeenCalledTimes(1);
+    expect(subscribersFor(recoverVariables)).toHaveLength(2);
+    const retriedSubscriber = subscribersFor(recoverVariables)[1]!;
+    const recoveredPayload = payload('retry-recovered', 1);
+    act(() => retriedSubscriber.handlers.next({ payloadAlias: recoveredPayload }));
+    expect(seen).toEqual([recoveredPayload]);
+    expect(recoverModel.find('retry-recovered')).toEqual(recoveredPayload.message);
+
+    const cancelAttemptsBeforeUnmount = subscribersFor(cancelVariables).length;
+    act(() => root.unmount());
+    act(() => jest.advanceTimersByTime(30000));
+    expect(subscribersFor(cancelVariables)).toHaveLength(cancelAttemptsBeforeUnmount);
+    unsubscribe();
   });
 
   it('reports presentation listener failures without blocking later listeners', () => {

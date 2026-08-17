@@ -7,6 +7,7 @@ import {
   resetRuntime,
   setFetchNetworkOnline
 } from '../../testApi';
+import { onlineManager } from '@tanstack/react-query';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -79,11 +80,10 @@ describe('subscription runtime correctness', () => {
     }
   });
 
-  it('releases an offline retry listener during runtime reset', () => {
-    const release = jest.fn();
-    const subscribeNetwork = jest.spyOn(networkState, 'subscribeFetchNetwork').mockReturnValue(release);
+  it('releases the offline retry listener during runtime reset: reconnect revives only a live runtime', () => {
     try {
       let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      const received: string[] = [];
       const transport = createMockTransport({
         subscribe: (_options, nextHandlers) => {
           handlers = nextHandlers;
@@ -91,18 +91,34 @@ describe('subscription runtime correctness', () => {
         }
       });
       configureDb({ storage: createMemoryPlane(), transport });
-      setFetchNetworkOnline(false);
-      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+      const subscribeCalls = () => transport.calls.filter(call => call.kind === 'subscribe').length;
       runtime.setActive(true);
+      expect(subscribeCalls()).toBe(1);
+
+      // Positive counterpart: an offline error arms a reconnect listener that resubscribes and delivers.
+      setFetchNetworkOnline(false);
       handlers.error(new Error('connection dropped'));
+      expect(onlineManager.hasListeners()).toBe(true);
+      setFetchNetworkOnline(true);
+      expect(subscribeCalls()).toBe(2);
+      handlers.next({ event: { id: 'revived' } });
+      expect(received).toEqual(['revived']);
 
+      // The same armed listener is released by resetRuntime. Public reads cannot separate a leaked
+      // listener from a released one (active/generation guards already block a stale resubscribe),
+      // so the connectivity listener registry itself is the observable.
+      setFetchNetworkOnline(false);
+      handlers.error(new Error('connection dropped again'));
+      expect(onlineManager.hasListeners()).toBe(true);
       resetRuntime();
-
-      expect(subscribeNetwork).toHaveBeenCalledTimes(1);
-      expect(release).toHaveBeenCalledTimes(1);
+      expect(onlineManager.hasListeners()).toBe(false);
+      setFetchNetworkOnline(true);
+      handlers.next({ event: { id: 'stale' } });
+      expect(subscribeCalls()).toBe(2);
+      expect(received).toEqual(['revived']);
       runtime.stop();
     } finally {
-      subscribeNetwork.mockRestore();
       setFetchNetworkOnline(true);
     }
   });
@@ -186,33 +202,43 @@ describe('subscription runtime correctness', () => {
     }
   });
 
-  it('runs entry reconciliation after every successful subscribe attempt', () => {
+  it('runs entry reconciliation after every successful subscribe attempt and skips a failed one', () => {
     jest.useFakeTimers();
     try {
+      let attempts = 0;
       let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      const reconciled: number[] = [];
       const transport = createMockTransport({
         subscribe: (_options, nextHandlers) => {
+          attempts += 1;
+          if (attempts === 1) {
+            nextHandlers.error(new Error('synchronous subscription error'));
+            return jest.fn();
+          }
           handlers = nextHandlers;
           return jest.fn();
         }
       });
       configureDb({ storage: createMemoryPlane(), transport });
-      const reconcile = jest.fn();
       const runtime = createModelEventLifecycle([
         {
           key: 'userCounters',
           query: document,
-          onSubscribe: reconcile,
+          onSubscribe: () => reconciled.push(attempts),
           onData: () => {}
         }
       ]);
 
       runtime.setActive(true);
-      expect(reconcile).toHaveBeenCalledTimes(1);
-      handlers.error(new Error('connection dropped'));
+      // Attempt 1 failed synchronously: no reconciliation ran for it.
+      expect(reconciled).toEqual([]);
       jest.advanceTimersByTime(1000);
+      // Attempt 2 succeeded: reconciliation ran once, for that attempt.
+      expect(reconciled).toEqual([2]);
+      handlers.error(new Error('connection dropped'));
+      jest.advanceTimersByTime(2000);
 
-      expect(reconcile).toHaveBeenCalledTimes(2);
+      expect(reconciled).toEqual([2, 3]);
       runtime.stop();
     } finally {
       jest.useRealTimers();

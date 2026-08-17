@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, createSingletonStatics, defineModel, defineShape, f, type ModelInput, type ModelStored } from '../../testApi';
+import { acquireModelSubscriptions, configureDb, createSingletonStatics, defineModel, defineShape, f, type ModelInput, type ModelStored } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type MessageInput = {
@@ -666,16 +666,63 @@ describe('model surface', () => {
     ).toThrow('owner reads are only available inside deferred declaration callbacks');
   });
 
-  it('exposes typed presentation subscription through its event handle', () => {
-    configureRuntime(createMockTransport());
-    const Message = createMessageModel('Event');
-    const unsubscribe = Message.events.messageCreated.subscribe(payload => {
-      expect(payload.message.id).toBe('m-live');
+  it('delivers typed presentation payloads through its event handle and stops delivering after unsubscribe', () => {
+    const subscriptions: Array<{ query: unknown; next: (data: unknown) => void }> = [];
+    const transport = createMockTransport({
+      subscribe: (options, handlers) => {
+        subscriptions.push({ query: (options as { query: unknown }).query, next: handlers.next });
+        return () => {};
+      }
     });
-
-    expect(typeof unsubscribe).toBe('function');
+    configureRuntime(transport);
+    // A dedicated document keeps this test's transport subscription distinguishable from the
+    // shared createMessageModel document used by sibling tests.
+    const eventDocument = {
+      kind: 'Document',
+      definitions: [
+        {
+          kind: 'OperationDefinition',
+          operation: 'subscription',
+          selectionSet: {
+            kind: 'SelectionSet',
+            selections: [{ kind: 'Field', name: { kind: 'Name', value: 'messageCreated' } }]
+          }
+        }
+      ]
+    } as unknown as TypedDocumentNode<MessageCreatedData, Record<string, never>>;
+    const Message = defineModel('SpecMessagePresentationEvent', {
+      schema: MessageSchema,
+      events: owner => ({
+        messageCreated: owner.gql.live(eventDocument, {
+          variables: {},
+          root: { insert: { select: ({ payload }) => payload.message } }
+        })
+      }),
+      maintenance: { dropTempRowsAfterMs: 1000 }
+    });
     expect('apply' in Message.events.messageCreated).toBe(false);
+
+    const release = acquireModelSubscriptions();
+    const received: string[] = [];
+    const unsubscribe = Message.events.messageCreated.subscribe(payload => {
+      received.push(payload.message.id);
+    });
+    const pusher = subscriptions.find(subscription => subscription.query === eventDocument)!;
+    const liveRow = { id: 'm-live', chatId: 'chat-1', body: 'live', status: 'sent' as const };
+    act(() => pusher.next({ messageCreated: { message: liveRow } }));
+
+    // The subscriber received the typed payload and the event root landed the row.
+    expect(received).toEqual(['m-live']);
+    expect(Message.find('m-live')).toEqual(liveRow);
+
     unsubscribe();
+    const secondRow = { id: 'm-live-2', chatId: 'chat-1', body: 'after', status: 'sent' as const };
+    act(() => pusher.next({ messageCreated: { message: secondRow } }));
+
+    // After unsubscribe the presentation callback is silent while the event still lands rows.
+    expect(received).toEqual(['m-live']);
+    expect(Message.find('m-live-2')).toEqual(secondRow);
+    release();
   });
 });
 

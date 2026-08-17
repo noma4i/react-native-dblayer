@@ -1,5 +1,5 @@
 import type { UsedMmkvMethods } from '../../testApi';
-import { configureDb , bootDb , mmkvStoragePlane , mmkvStorageAdapter, getDbStorageKeys, removeDbStorageKey } from '../../testApi';
+import { configureDb , bootDb , mmkvStoragePlane , mmkvStorageAdapter, getDbStorageKeys, removeDbStorageKey, encodePersistence, DB_FORMAT_VERSION, computeSchemaFingerprints } from '../../testApi';
 import { createMockTransport } from '../helpers/harness';
 
 // Type-only import: pulls the real-package-bound mock factory (__mocks__/mmkvMockFactory.ts) into this
@@ -18,25 +18,22 @@ describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot pa
 
   afterEach(removeAllDbKeys);
 
-  it('creates one MMKV wrapper and reuses it across adapter operations', async () => {
-    const storage = {
-      getString: jest.fn(() => undefined),
-      set: jest.fn(),
-      remove: jest.fn(),
-      getAllKeys: jest.fn(() => [])
-    };
-    const createMMKV = jest.fn(() => storage);
-    jest.doMock('react-native-mmkv', () => ({ createMMKV }));
-    try {
-      await jest.isolateModulesAsync(async () => {
-        const isolated = await import('../../testApi');
-        expect(isolated.mmkvStorageAdapter.getItem('missing')).toBeNull();
-        expect(isolated.getDbStorageKeys()).toEqual([]);
-      });
-      expect(createMMKV).toHaveBeenCalledTimes(1);
-    } finally {
-      jest.dontMock('react-native-mmkv');
-    }
+  it('serves one shared MMKV instance to the adapter, the plane, and the key registry', () => {
+    // Each entry point of the module would hold a private store if the wrapper were re-created:
+    // a value written through one surface must be readable through every other.
+    mmkvStorageAdapter.setItem('shared-key', 'via-adapter');
+    const plane = mmkvStoragePlane();
+
+    expect(plane.get('shared-key')).toBe('via-adapter');
+
+    plane.set('plane-key', 'via-plane');
+
+    expect(mmkvStorageAdapter.getItem('plane-key')).toBe('via-plane');
+    expect(getDbStorageKeys().sort()).toEqual(['plane-key', 'shared-key']);
+
+    removeDbStorageKey('shared-key');
+    expect(plane.get('shared-key')).toBeUndefined();
+    expect(mmkvStorageAdapter.getItem('plane-key')).toBe('via-plane');
   });
 
   it('round-trips through the real mmkv-backed adapter (getItem/setItem/removeItem)', () => {
@@ -72,12 +69,13 @@ describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot pa
     expect(plane.get('dbl:sentinel')).toBeUndefined();
   });
 
-  it('boots through the real mmkv-backed storage plane (default configureDb storage) and writes the manifest', async () => {
+  it('boots through the real mmkv-backed storage plane (default configureDb storage) and writes the current manifest payload', async () => {
     configureDb({ transport: createMockTransport() });
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
 
-    const manifestKeys = getDbStorageKeys().filter(key => key.endsWith('manifest'));
-    expect(manifestKeys.length).toBeGreaterThan(0);
+    expect(mmkvStoragePlane().get('dbl:manifest')).toBe(
+      encodePersistence({ formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null })
+    );
   });
 });

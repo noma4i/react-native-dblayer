@@ -103,8 +103,8 @@ describe('where operator matching', () => {
   });
 
   it('builds one deterministic scope key regardless of condition key order', () => {
-    expect(buildScopeKey({ beta: 1, alpha: 'x' })).toBe(buildScopeKey({ alpha: 'x', beta: 1 }));
-    expect(buildScopeKey({})).toBe(buildScopeKey(undefined as never));
+    expect([buildScopeKey({ beta: 1, alpha: 'x' }), buildScopeKey({ alpha: 'x', beta: 1 })]).toEqual(['{"alpha":"x","beta":1}', '{"alpha":"x","beta":1}']);
+    expect([buildScopeKey({}), buildScopeKey(undefined as never)]).toEqual(['__root__', '__root__']);
   });
 });
 

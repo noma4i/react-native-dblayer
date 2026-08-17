@@ -83,12 +83,17 @@ describe('residency drain', () => {
     expect(residencySnapshot().modelStores).toBe(0);
   });
 
-  it('sums every instance registered under one name and forgets an unregistered gauge', () => {
+  // No public path reaches this branch: every production gauge name is registered once (see
+  // `modelStores` in src/core/store.ts), so the per-name sum and the forget-on-release are exercised
+  // here directly with literal values. The owner-facing side of the same registry is covered by the
+  // model-store case above.
+  it('sums every instance registered under one name and forgets the name once all are released', () => {
     const release = registerResidency('specGauge', () => 2);
     const releaseSecond = registerResidency('specGauge', () => 3);
     expect(residencySnapshot().specGauge).toBe(5);
 
     release();
+    expect(residencySnapshot().specGauge).toBe(3);
     releaseSecond();
 
     expect(residencySnapshot().specGauge).toBeUndefined();

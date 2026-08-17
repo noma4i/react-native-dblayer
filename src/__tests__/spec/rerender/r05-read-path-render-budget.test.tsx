@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { belongsTo, defineModelRuntime, f, hasMany, hasOne , getCommitBus } from '../../testApi';
+import { belongsTo, defineModelRuntime, f, hasMany, hasOne } from '../../testApi';
 import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 type ScopeRow = { id: string; groupId: string; title: string };
@@ -408,15 +408,16 @@ describe('read path render budget', () => {
     act(() => root.unmount());
   });
 
-  it('keeps one commit-bus subscription across re-renders of an unchanged model read', () => {
+  it('keeps serving one model read across re-renders and delivers the next commit exactly once', () => {
     setupSpecRuntime();
     const rows = createScopeRows();
     rows.insert({ id: 'row-1', groupId: 'group-1', title: 'One' });
-    const bus = getCommitBus();
-    const spy = jest.spyOn(bus, 'subscribeIncremental');
+    let renders = 0;
+    let seen: { id: string; title: string } | undefined;
     const Reader = ({ tick }: { tick: number }) => {
       void tick;
-      rows.use.first({ groupId: 'group-1' });
+      renders += 1;
+      seen = rows.use.first({ groupId: 'group-1' }) as { id: string; title: string } | undefined;
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -424,13 +425,27 @@ describe('read path render budget', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(Reader, { tick: 0 }));
     });
-    const subscriptionsAfterMount = spy.mock.calls.length;
+    expect(seen).toMatchObject({ id: 'row-1', title: 'One' });
     for (let tick = 1; tick <= 3; tick += 1) {
       act(() => root.update(React.createElement(Reader, { tick })));
     }
+    const rendersBeforeCommit = renders;
 
-    expect(spy.mock.calls.length).toBe(subscriptionsAfterMount);
+    act(() => {
+      rows.update('row-1', { title: 'Renamed' });
+    });
+
+    // Three parent re-renders left exactly one live read: the commit arrives once, with its value.
+    expect(renders - rendersBeforeCommit).toBe(1);
+    expect(seen).toMatchObject({ id: 'row-1', title: 'Renamed' });
+
+    // A commit of the same model that does not change this read is not a frame for this reader.
+    const rendersAfterCommit = renders;
+    act(() => {
+      rows.insert({ id: 'row-2', groupId: 'group-2', title: 'Other' });
+    });
+    expect(renders - rendersAfterCommit).toBe(0);
+    expect(seen).toMatchObject({ id: 'row-1', title: 'Renamed' });
     act(() => root.unmount());
-    spy.mockRestore();
   });
 });

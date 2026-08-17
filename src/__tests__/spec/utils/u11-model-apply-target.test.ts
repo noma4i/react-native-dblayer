@@ -29,10 +29,18 @@ describe('model apply target', () => {
   });
 
   it('[A8] builds twice for one model id without claiming a process-wide slot', () => {
+    const scopeKey = 'byBucket|{"bucket":"a"}';
     const first = buildTarget('SpecApplyTargetTwice');
+    first.applyTarget.scopeDelta(scopeKey, { append: [{ id: 'row-1', orderKey: 'a' }], detach: [] });
+
+    // Building a second target for the same model id registers nothing, so it starts empty and the
+    // first one keeps serving what it holds.
     const second = buildTarget('SpecApplyTargetTwice');
 
-    expect(first.applyTarget).not.toBe(second.applyTarget);
+    expect(second.applyTarget.readScopeEntries(scopeKey)).toEqual([]);
+    expect(first.applyTarget.readScopeEntries(scopeKey)).toEqual([{ id: 'row-1', orderKey: 'a' }]);
+    second.applyTarget.scopeDelta(scopeKey, { append: [{ id: 'row-2', orderKey: 'b' }], detach: [] });
+    expect(first.applyTarget.readScopeEntries(scopeKey)).toEqual([{ id: 'row-1', orderKey: 'a' }]);
   });
 
   it('reports a scope order revision that moves when the scope order moves', () => {

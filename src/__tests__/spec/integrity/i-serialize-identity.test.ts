@@ -66,21 +66,29 @@ describe('stableSerialize injectivity across value branches', () => {
   });
 
   it('serializes objects identically regardless of key insertion order', () => {
-    expect(stableSerialize({ b: 2, a: 1 })).toBe(stableSerialize({ a: 1, b: 2 }));
-    expect(stableSerialize({ a: 1, b: 2 })).not.toBe(stableSerialize({ a: 2, b: 1 }));
+    expect(stableSerialize({ b: 2, a: 1 })).toBe('{"a":1,"b":2}');
+    expect(stableSerialize({ a: 1, b: 2 })).toBe('{"a":1,"b":2}');
+    expect(stableSerialize({ a: 2, b: 1 })).toBe('{"a":2,"b":1}');
   });
 
   it('keeps nested structures injective', () => {
-    expect(stableSerialize({ a: { b: 1 } })).not.toBe(stableSerialize({ a: { b: '1' } }));
-    expect(stableSerialize([{ a: 1 }])).not.toBe(stableSerialize([{ a: [1] }]));
+    expect(stableSerialize({ a: { b: 1 } })).toBe('{"a":{"b":1}}');
+    expect(stableSerialize({ a: { b: '1' } })).toBe('{"a":{"b":"1"}}');
+    expect(stableSerialize([{ a: 1 }])).toBe('[{"a":1}]');
+    expect(stableSerialize([{ a: [1] }])).toBe('[{"a":[1]}]');
   });
 });
 
 describe('semanticValue identity tokens', () => {
   it('serializes scalars structurally and keeps number/string spellings apart', () => {
-    expect(semanticValue(1)).not.toBe(semanticValue('1'));
-    expect(semanticValue(null)).not.toBe(semanticValue('null'));
-    expect(semanticValue(undefined)).not.toBe(semanticValue('undefined'));
+    expect([semanticValue(1), semanticValue('1'), semanticValue(null), semanticValue('null'), semanticValue(undefined), semanticValue('undefined')]).toEqual([
+      '1',
+      '"1"',
+      'null',
+      '"null"',
+      'undefined',
+      '"undefined"'
+    ]);
   });
 
   it('gives one function a stable token and different functions different tokens', () => {
@@ -93,11 +101,15 @@ describe('semanticValue identity tokens', () => {
   });
 
   it('serializes plain and null-prototype objects structurally with sorted keys', () => {
-    expect(semanticValue({ b: 2, a: 1 })).toBe(semanticValue({ a: 1, b: 2 }));
-    expect(semanticValue({ a: 1 })).not.toBe(semanticValue({ a: 2 }));
     const bare = Object.create(null) as Record<string, unknown>;
     bare.a = 1;
-    expect(semanticValue(bare)).toBe(semanticValue({ a: 1 }));
+    expect([semanticValue({ b: 2, a: 1 }), semanticValue({ a: 1, b: 2 }), semanticValue({ a: 1 }), semanticValue({ a: 2 }), semanticValue(bare)]).toEqual([
+      '{"a":1,"b":2}',
+      '{"a":1,"b":2}',
+      '{"a":1}',
+      '{"a":2}',
+      '{"a":1}'
+    ]);
   });
 
   it('never collides a scalar with a same-spelling string or array wrapper', () => {
@@ -128,8 +140,10 @@ describe('semanticValue identity tokens', () => {
 
 describe('compositeKey segment boundaries', () => {
   it('keeps different segmentations of the same text distinct', () => {
-    expect(compositeKey('a', 'bc')).not.toBe(compositeKey('ab', 'c'));
-    expect(compositeKey('a', 'b', 'c')).not.toBe(compositeKey('a', 'bc'));
+    // Each segment carries its own length prefix, so the same letters under different splits spell different keys.
+    expect(compositeKey('a', 'bc')).toBe('1:a2:bc');
+    expect(compositeKey('ab', 'c')).toBe('2:ab1:c');
+    expect(compositeKey('a', 'b', 'c')).toBe('1:a1:b1:c');
   });
 
   it('[ID9] keeps segment boundaries injective when values contain NUL', () => {

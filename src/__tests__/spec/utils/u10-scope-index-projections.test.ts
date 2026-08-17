@@ -42,6 +42,8 @@ describe('scope index projections', () => {
     index.write(SCOPE, index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }]).next);
 
     expect(index.residentRowKeys()).toBe(1);
+    expect(index.keysOf('row-2')).toEqual([]);
+    expect(index.keysOf('row-1')).toEqual([SCOPE]);
   });
 
   it('[R18] starts the order revision from scratch after a reset', () => {

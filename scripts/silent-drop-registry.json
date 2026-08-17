@@ -4897,7 +4897,7 @@
       "drops": "nothing (empty bucket)",
       "condition": "last subscriber of a model removed",
       "verdict": "NONDROP",
-      "ref": "empty private bucket cleanup; observably equivalent per Stryker comment at line 40",
+      "ref": "empty private bucket cleanup; retaining an empty private bucket is observably equivalent",
       "note": ""
     },
     {
@@ -7949,6 +7949,36 @@
       "verdict": "NONDROP",
       "ref": "the seed is consumed by the holder; identity now lives in the holder row cache",
       "note": "identity cache handover"
+    },
+    {
+      "key": "src/core/bootFsck.ts|recoveryOps.push(...(planOptimisticInsert(operation.model, operation.actionKey, operation.input, tempId, operation.operationId) ?? []));|1",
+      "file": "src/core/bootFsck.ts",
+      "line": 43,
+      "drops": "nothing",
+      "condition": "the action of the crashed operation declares no optimistic insert root",
+      "verdict": "NONDROP",
+      "ref": "04-lifecycle.md :: P53 - only an optimistic insert leaves a temp row to rebuild; an action without one has no draft row to restore, and the rollback plan below still closes the operation",
+      "note": "crashed-insert rematerialization"
+    },
+    {
+      "key": "src/dsl/optimisticInsertPlanners.ts|entries.set(actionKey, planner);|1",
+      "file": "src/dsl/optimisticInsertPlanners.ts",
+      "line": 16,
+      "drops": "the previous planner of the same action key",
+      "condition": "the same action is declared again in one process",
+      "verdict": "NONDROP",
+      "ref": "a redeclaration replaces the definition; the last declaration is the one the action runs and retries with",
+      "note": "definition registry write"
+    },
+    {
+      "key": "src/dsl/optimisticInsertPlanners.ts|planners.set(modelId, entries);|1",
+      "file": "src/dsl/optimisticInsertPlanners.ts",
+      "line": 17,
+      "drops": "nothing",
+      "condition": "always",
+      "verdict": "NONDROP",
+      "ref": "re-seats the same map instance the entries were read from",
+      "note": "definition registry write"
     }
   ]
 }

@@ -450,17 +450,49 @@ describe('query runtime edges', () => {
     reader.unmount();
   });
 
-  it('invalidates every registered query scope through its destination model', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = createRows('ModelInvalidation');
-    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
-      document,
-      key: 'query-runtime-model-invalidation',
-      select: data => data.rows
+  it('invalidates every query registered on its destination model: mounted readers refetch, other models stay fresh', async () => {
+    const served: Record<string, number> = {};
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<typeof transport.query>[0]) => {
+        const tag = ((operation.variables ?? {}) as { tag: string }).tag;
+        served[tag] = (served[tag] ?? 0) + 1;
+        return { data: { rows: [{ id: `row-${tag}`, bucket: 'main', label: `${tag}-v${served[tag]}` }] } as TData };
+      }
     });
-    query.read({ bucket: 'main' });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('ModelInvalidation');
+    const other = createRows('ModelInvalidationOther');
+    const makeQuery = (model: ReturnType<typeof createRows>, tag: string) =>
+      model.query<{ rows: Row[] }, { tag: string }, { tag: string }, Row>('list', {
+        document,
+        key: `query-runtime-model-invalidation-${tag}`,
+        vars: scope => ({ tag: scope.tag }),
+        select: data => data.rows,
+        staleTime: Infinity
+      });
+    const labels = (value: unknown): string[] => (value as Row[]).map(row => row.label);
+    const first = renderCountedInProvider(() => makeQuery(rows, 'a').use({ tag: 'a' }));
+    const second = renderCountedInProvider(() => makeQuery(rows, 'b').use({ tag: 'b' }));
+    const foreign = renderCountedInProvider(() => makeQuery(other, 'c').use({ tag: 'c' }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(labels(first.result().data)).toEqual(['a-v1']);
+    expect(labels(second.result().data)).toEqual(['b-v1']);
+    expect(labels(foreign.result().data)).toEqual(['c-v1']);
 
-    expect(() => invalidateModel(rows.modelId)).not.toThrow();
+    act(() => {
+      invalidateModel(rows.modelId);
+    });
+    await settle();
+    await settle(1, { macro: true });
+
+    // Both queries on the addressed model refetched, the query on the other model kept its value.
+    expect(labels(first.result().data)).toEqual(['a-v2']);
+    expect(labels(second.result().data)).toEqual(['b-v2']);
+    expect(labels(foreign.result().data)).toEqual(['c-v1']);
+    first.unmount();
+    second.unmount();
+    foreign.unmount();
   });
 
   it('uses the current observer chain when a reset drops the transport result', async () => {

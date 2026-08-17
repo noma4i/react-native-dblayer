@@ -3,7 +3,7 @@ import { Kind } from 'graphql';
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, bootDb, compositeKey, configureDb, createCommitEnvelope, defineModel, defineModelRuntime, defineShape, f, getApplyRuntime, getDbQueryClient, getInternalModelHandle, registerActiveFetchReaders, resetRuntime, type QueryPersistenceRecord } from '../../testApi';
+import { DbProvider, bootDb, compositeKey, configureDb, createCommitEnvelope, defineModel, defineModelRuntime, defineShape, f, getApplyRuntime, getDbQueryClient, getInternalModelHandle, resetRuntime, type QueryPersistenceRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -84,41 +84,67 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     jest.restoreAllMocks();
   });
 
-  it('stops a foreground resume drain at reset without polluting fresh diagnostics', async () => {
-    configureDb({
-      storage: createMemoryPlane(),
-      transport: createMockTransport(),
-      defaults: { resumeRefetch: { chunkSize: 1 } }
+  it('stops a foreground resume drain at reset and the reset runtime serves fresh landings', async () => {
+    jest.useFakeTimers();
+    const indexCalls: number[] = [];
+    const perIndexServed = new Map<number, number>();
+    const releaseRefetches: Array<() => void> = [];
+    let resuming = false;
+    const transport = createMockTransport({
+      query: async <TData, TVariables>(operation: { variables?: TVariables }) => {
+        const index = (operation.variables as unknown as ValueVariables).index;
+        indexCalls.push(index);
+        const nth = (perIndexServed.get(index) ?? 0) + 1;
+        perIndexServed.set(index, nth);
+        if (!resuming) return { data: { value: `v${index}-${nth}` } as TData };
+        return new Promise<{ data: TData }>(resolve => releaseRefetches.push(() => resolve({ data: { value: `v${index}-${nth}` } as TData })));
+      }
     });
-    let resolveFirst!: () => void;
-    const firstRefetch = jest.fn(
-      () =>
-        new Promise<void>(resolve => {
-          resolveFirst = resolve;
-        })
-    );
-    const secondRefetch = jest.fn(async () => {});
-    const releaseFirst = registerActiveFetchReaders({ queryKey: ['resume', 'first'], markResumeStale: () => true, refetch: firstRefetch });
-    const releaseSecond = registerActiveFetchReaders({ queryKey: ['resume', 'second'], markResumeStale: () => true, refetch: secondRefetch });
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { resumeStaleTime: 50, resumeRefetch: { chunkSize: 1 } } });
+    const first = createValueRelation('FreshnessResetDrainFirst', 0, { staleTime: Infinity });
+    const second = createValueRelation('FreshnessResetDrainSecond', 1, { staleTime: Infinity });
+    const observed: Array<string | undefined> = [undefined, undefined];
+    const Reader = () => {
+      observed[0] = first.use().data?.value;
+      observed[1] = second.use().data?.value;
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
-      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
     });
-    await settle(2);
+    await settle();
+    expect(observed).toEqual(['v0-1', 'v1-1']);
+    expect(indexCalls).toEqual([0, 1]);
 
-    act(() => appStateHandler?.('background'));
-    act(() => appStateHandler?.('active'));
-    await Promise.resolve();
-    expect(firstRefetch).toHaveBeenCalledTimes(1);
+    resuming = true;
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+    // chunkSize 1: only the first stale query is refetching when the reset lands.
+    expect(indexCalls).toEqual([0, 1, 0]);
 
+    resuming = false;
     act(() => resetRuntime());
-    resolveFirst();
-    await settle(2);
-
-    expect(secondRefetch).not.toHaveBeenCalled();
+    await settle();
+    // The reset wake-up refetches both mounted readers from the new generation and serves fresh
+    // values; the reset also zeroes the resume diagnostics (companion).
+    expect(indexCalls).toEqual([0, 1, 0, 0, 1]);
+    expect(observed).toEqual(['v0-3', 'v1-2']);
     expect(diagnostics().snapshot()).toMatchObject({ resumeDrains: 0, resumeRefetches: 0 });
-    releaseFirst();
-    releaseSecond();
+
+    // Releasing the stalled resume refetch neither dispatches a second drain chunk nor
+    // overwrites the fresh post-reset values with the stale landing.
+    act(() => {
+      releaseRefetches.splice(0).forEach(release => release());
+    });
+    await settle();
+    expect(indexCalls).toEqual([0, 1, 0, 0, 1]);
+    expect(observed).toEqual(['v0-3', 'v1-2']);
     act(() => root.unmount());
   });
 
@@ -362,24 +388,29 @@ describe('freshness follows committed-row survival and foreground resume', () =>
         query: async <TData,>() => {
           calls += 1;
           if (failNext) return new Promise<{ data: TData }>((_resolve, reject) => rejects.push(reject));
-          return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'doomed', name: 'Doomed', group: null }] } as TData };
+          if (calls === 1) return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'doomed', name: 'Doomed', group: null }] } as TData };
+          return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'refetched', name: 'Refetched', group: null }] } as TData };
         }
       }),
       defaults: { resumeStaleTime: 50 }
     });
     const rows = createRowsModel('FreshnessRejudgeFailedFetch');
     const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-rejudge-failed-fetch', select: data => data.rows, staleTime: Infinity });
+    let observedIds: string[] = [];
     const Reader = () => {
-      query.use(undefined);
+      const raw: unknown = query.use(undefined).data;
+      observedIds = Array.isArray(raw) ? (raw as Row[]).map(row => row.id) : [];
       return null;
     };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
     let root!: TestRenderer.ReactTestRenderer;
 
     act(() => {
-      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
     });
     await settle();
     expect(calls).toBe(1);
+    expect(observedIds).toEqual(['kept', 'doomed']);
     const shrinksBefore = diagnostics().snapshot().chainSurvivorShrinks;
     failNext = true;
     act(() => {
@@ -389,9 +420,11 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     });
     await settle();
     expect(calls).toBe(2);
-    // Loss lands while the refetch is in flight: judgment is deferred, not dropped.
+    // Loss lands while the refetch is in flight: the reader serves the survivor and the
+    // judgment is deferred, not dropped (companion counter unchanged).
     act(() => rows.destroy('doomed'));
     await settle();
+    expect(observedIds).toEqual(['kept']);
     expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore);
 
     act(() => {
@@ -399,6 +432,14 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     });
     await settle();
     expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore + 1);
+    // The re-judged loss stales the chain: a remount fetches again and serves the full landing.
+    failNext = false;
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+    expect(calls).toBe(3);
+    // The destroyed id stays tombstoned; the refetch lands and serves the fresh replacement row.
+    expect(observedIds).toEqual(['kept', 'refetched']);
     act(() => root.unmount());
   });
 
@@ -413,15 +454,18 @@ describe('freshness follows committed-row survival and foreground resume', () =>
         query: async <TData,>() => {
           calls += 1;
           if (failNext) return new Promise<{ data: TData }>((_resolve, reject) => rejects.push(reject));
-          return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'doomed', name: 'Doomed', group: null }] } as TData };
+          if (calls === 1) return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'doomed', name: 'Doomed', group: null }] } as TData };
+          return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'refetched', name: 'Refetched', group: null }] } as TData };
         }
       }),
-      defaults: { resumeStaleTime: 50 }
+      defaults: { resumeStaleTime: 50, retry: { query: { classify: () => 'network', budgets: { network: 1 }, backoff: { baseMs: 10, maxMs: 100 } } } }
     });
     const rows = createRowsModel('FreshnessRejudgeObserverNoise');
     const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-rejudge-observer-noise', select: data => data.rows, staleTime: Infinity });
+    let observedIds: string[] = [];
     const Reader = () => {
-      query.use(undefined);
+      const raw: unknown = query.use(undefined).data;
+      observedIds = Array.isArray(raw) ? (raw as Row[]).map(row => row.id) : [];
       return null;
     };
     const Root = ({ readers }: { readers: number }) =>
@@ -433,6 +477,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     });
     await settle();
     expect(calls).toBe(1);
+    expect(observedIds).toEqual(['kept', 'doomed']);
     const shrinksBefore = diagnostics().snapshot().chainSurvivorShrinks;
     failNext = true;
     act(() => {
@@ -444,17 +489,37 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     expect(calls).toBe(2);
     act(() => rows.destroy('doomed'));
     await settle();
-    // Unrelated cache traffic on the judged key (a second observer mounts) is not a settle:
-    // consuming the deferred judgment on it would drop the recorded loss unjudged.
+    expect(observedIds).toEqual(['kept']);
+    // Unrelated cache events land on the judged key before the failed settle: the first
+    // attempt's failure updates the cache while its retry is still owed, and a second observer
+    // mounts. Consuming the deferred judgment on either would drop the recorded loss unjudged.
+    act(() => {
+      rejects.splice(0).forEach(reject => reject(new Error('network down')));
+    });
+    await settle();
     act(() => root.update(React.createElement(Root, { readers: 2 })));
     await settle();
+    expect(observedIds).toEqual(['kept']);
+    expect(calls).toBe(2);
     expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore);
 
+    // The retry dispatches, fails past its budget, and only THIS settle consumes the judgment.
+    act(() => jest.advanceTimersByTime(25));
+    await settle();
+    expect(calls).toBe(3);
     act(() => {
       rejects.splice(0).forEach(reject => reject(new Error('network down')));
     });
     await settle();
     expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore + 1);
+    // The judged loss stales the chain: a remount fetches again and serves the full landing.
+    failNext = false;
+    act(() => root.update(React.createElement(Root, { readers: 0 })));
+    act(() => root.update(React.createElement(Root, { readers: 1 })));
+    await settle();
+    expect(calls).toBe(4);
+    // The destroyed id stays tombstoned; the refetch lands and serves the fresh replacement row.
+    expect(observedIds).toEqual(['kept', 'refetched']);
     act(() => root.unmount());
   });
 
@@ -635,32 +700,57 @@ describe('freshness follows committed-row survival and foreground resume', () =>
   });
 
   it('[F45] survives a loss touch on a chain that never landed data', async () => {
+    let calls = 0;
+    let failing = true;
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
         query: async <TData,>(): Promise<{ data: TData }> => {
-          throw new Error('transport down');
+          calls += 1;
+          if (failing) throw new Error('transport down');
+          return { data: { rows: [{ id: 'landed-1', name: 'Landed', group: null }, { id: 'landed-2', name: 'Landed', group: null }] } as TData };
         }
       })
     });
     const rows = createRowsModel('FreshnessJudgeNoMeta');
     const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-judge-no-meta', select: data => data.rows, staleTime: Infinity });
+    let observedIds: string[] | undefined;
     const Reader = () => {
-      query.use(undefined);
+      const raw: unknown = query.use(undefined).data;
+      observedIds = Array.isArray(raw) ? (raw as Row[]).map(row => row.id) : undefined;
       return null;
     };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
-      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
     });
     await settle(4);
+    expect(observedIds).toBeUndefined();
 
-    // The chain is registered but never landed: judging its touches must be a no-op, not a crash.
+    // The chain is registered but never landed: touches on it are judged as a no-op, not a crash.
     act(() => rows.seed([{ id: 'x', name: 'X', group: null }]));
     await settle();
     act(() => rows.destroy('x'));
     await settle();
+    expect(rows.find('x')).toBeUndefined();
     expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(0);
+
+    // The runtime survived the touch: the next successful landing serves rows to a remounted reader.
+    failing = false;
+    const callsBeforeRemount = calls;
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+    expect(calls).toBe(callsBeforeRemount + 1);
+    expect(observedIds).toEqual(['landed-1', 'landed-2']);
+
+    // Positive counterpart: once the chain HAS landed data, the same loss touch counts a shrink
+    // and the reader serves the survivor.
+    act(() => rows.destroy('landed-1'));
+    await settle();
+    expect(observedIds).toEqual(['landed-2']);
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(1);
     act(() => root.unmount());
   });
 

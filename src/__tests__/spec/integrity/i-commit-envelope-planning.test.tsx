@@ -1,4 +1,4 @@
-import { configureDb, defineModel, defineModelRuntime, defineShape, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState, hasMany, registerMutationCorrelator } from '../../testApi';
+import { getInternalScopeHandle, configureDb, defineModel, defineModelRuntime, defineShape, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState, hasMany, registerMutationCorrelator } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 type Row = { id: string; chatId: string; body: string };
@@ -92,11 +92,15 @@ describe('commit-envelope planning purity', () => {
     expect(diagnostics().snapshot().tombstoneWriteDrops).toBe(1);
   });
 
-  it('rejects an invalid replacement before planning any write', () => {
+  it('rejects an invalid replacement and leaves the store exactly as it was', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const rows = defineRows('InvalidReplacement');
+    rows.insert({ id: 'temp-invalid', chatId: 'chat-1', body: 'draft' });
 
     expect(() => getInternalModelHandle(rows).planReplace('temp-invalid', null)).toThrow(`replace rejected for ${rows.modelId}:temp-invalid`);
+
+    // Refused before planning: the row it names is untouched and no server row appeared.
+    expect(rows.where({}).map(row => [row.id, row.body])).toEqual([['temp-invalid', 'draft']]);
   });
 
   it('replaces a correlator declaration with the same model and mutation identity', () => {
@@ -108,40 +112,53 @@ describe('commit-envelope planning purity', () => {
     beginInsert(rows.modelId, 'op-registry', tempId);
     rows.insert({ id: tempId, chatId: 'chat-1', body: 'first' });
 
-    const plan = getInternalModelHandle(rows).planRows([{ id: 'server-1', chatId: 'chat-1', body: 'different' }]);
+    getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planRows([{ id: 'server-1', chatId: 'chat-1', body: 'different' }])));
 
-    expect(plan.some(op => op.kind === 'destroy' && op.ids.includes(tempId))).toBe(false);
+    // The newest declaration owns correlation: a body mismatch means no correlation, so the pending
+    // temp row stays next to the landed server row instead of being collapsed into it.
+    expect(rows.where({}).map(row => [row.id, row.body])).toEqual([
+      ['server-1', 'different'],
+      ['temp-registry', 'first']
+    ]);
   });
 
-  it('deduplicates scope-delta members before the commit envelope reaches WAL', () => {
+  it('seats one membership when a scope delta names the same row twice, at the LAST key it carries', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = defineRows('ScopeDeltaDedup');
-
-    const envelope = createCommitEnvelope([
-      {
-        kind: 'scope-delta',
-        model: rows.modelId,
-        scopeKey: 'scope-1',
-        append: [
-          { id: 'row-1', orderKey: 'V' },
-          { id: 'row-1', orderKey: 'W' }
-        ],
-        detach: []
-      }
+    const rows = defineModelRuntime({
+      id: 'CommitEnvelopeScopeDeltaDedup',
+      name: 'CommitEnvelopeScopeDeltaDedup',
+      fields: { chatId: f.str(), body: f.str() },
+      scopes: { thread: ({ by: { chatId: 'chatId' }, sort: 'server-order' }) }
+    });
+    rows.insertMany([
+      { id: 'row-1', chatId: 'chat-1', body: 'first' },
+      { id: 'row-2', chatId: 'chat-1', body: 'second' }
     ]);
+    const scopeKey = compositeKey('thread', '{"chatId":"chat-1"}');
+    getApplyRuntime().commit(
+      createCommitEnvelope([{ kind: 'scope-delta', model: rows.modelId, scopeKey, append: [{ id: 'row-2', orderKey: 'M' }], detach: [] }])
+    );
 
-    expect(envelope.scopeOps).toEqual([
-      {
-        kind: 'scope-delta',
-        model: rows.modelId,
-        scopeKey: 'scope-1',
-        append: [{ id: 'row-1', orderKey: 'W' }],
-        detach: []
-      }
-    ]);
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        {
+          kind: 'scope-delta',
+          model: rows.modelId,
+          scopeKey,
+          append: [
+            { id: 'row-1', orderKey: 'V' },
+            { id: 'row-1', orderKey: 'B' }
+          ],
+          detach: []
+        }
+      ])
+    );
+
+    // One membership per row, seated at the last key of the delta: 'B' sorts before 'M'.
+    expect(rows.scopes.thread.read({ chatId: 'chat-1' }).map(row => row.id)).toEqual(['row-1', 'row-2']);
   });
 
-  it('assigns unique order keys to sorted-scope appends whose rows are not yet resolvable', () => {
+  it('seats one membership per appended id of a sorted scope whose rows have not arrived yet', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const rows = defineModelRuntime({
       id: 'CommitEnvelopePlanningPlacement',
@@ -149,21 +166,22 @@ describe('commit-envelope planning purity', () => {
       fields: { rank: f.num() },
       scopes: { list: ({ sort: { field: 'rank', dir: 'asc' } }) }
     });
+    const scopeKey = getInternalScopeHandle(rows.scopes.list).key({});
 
-    const envelope = createCommitEnvelope([
-      {
-        kind: 'scope-delta',
-        model: rows.modelId,
-        scopeKey: compositeKey('list', '{}'),
-        append: [{ id: 'ghost-a' }, { id: 'ghost-b' }, { id: 'ghost-c' }],
-        detach: []
-      }
+    // The rows do not exist yet, so no order key can be derived from `rank`: one shared key would
+    // collapse three memberships into one and the rows would never all appear.
+    getApplyRuntime().commit(
+      createCommitEnvelope([{ kind: 'scope-delta', model: rows.modelId, scopeKey, append: [{ id: 'ghost-a' }, { id: 'ghost-b' }, { id: 'ghost-c' }], detach: [] }])
+    );
+
+    rows.insertMany([
+      { id: 'ghost-a', rank: 3 },
+      { id: 'ghost-b', rank: 1 },
+      { id: 'ghost-c', rank: 2 }
     ]);
 
-    const delta = envelope.scopeOps.find(op => op.kind === 'scope-delta');
-    const orderKeys = delta && delta.kind === 'scope-delta' ? delta.append.map(entry => entry.orderKey) : [];
-    expect(orderKeys).toHaveLength(3);
-    expect(new Set(orderKeys).size).toBe(3);
+    // Every membership survived, and the declared sort owns the order a reader sees.
+    expect(rows.scopes.list.read({}).map(row => row.id)).toEqual(['ghost-b', 'ghost-c', 'ghost-a']);
   });
 
   it('[W34] plans no destroy leg when a replacement keeps its own id', () => {

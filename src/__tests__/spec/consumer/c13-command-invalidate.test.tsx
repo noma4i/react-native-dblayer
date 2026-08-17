@@ -120,8 +120,17 @@ describe('command invalidation and dedupe contracts', () => {
   });
 
   it('guards concurrent command runs but allows the same input after commit', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let served = 0;
     const transport = createMockTransport({
-      mutation: async <TData,>() => ({ data: { reward: { ok: true, user: { id: 'user-1', balance: 10 } } } as TData })
+      mutation: async <TData,>() => {
+        served += 1;
+        if (served === 1) await gate;
+        return { data: { reward: { ok: true, user: { id: 'user-1', balance: served * 10 } } } as TData };
+      }
     });
     configureDb({ storage: createMemoryPlane(), transport });
 
@@ -132,17 +141,28 @@ describe('command invalidation and dedupe contracts', () => {
           mode: 'request',
           result: 'reward',
           variables: (input: ActionInput) => input,
-          dedupe: false,
+          dedupe: { key: input => input.campaignId },
           root: { insert: { select: ({ data }) => data.reward.user } }
         })
       })
     });
 
-    const first = await users.actions.redeem.run({ campaignId: 'camp-1' });
-    const second = await users.actions.redeem.run({ campaignId: 'camp-1' });
+    // While the first run is in flight, a same-key run is guarded: it returns null and never
+    // reaches the transport.
+    const firstPromise = users.actions.redeem.run({ campaignId: 'camp-1' });
+    const guarded = await users.actions.redeem.run({ campaignId: 'camp-1' });
+    expect(guarded).toBeNull();
+    expect(transport.calls.filter(entry => entry.kind === 'mutation')).toHaveLength(1);
 
-    expect(first).not.toBeNull();
-    expect(second).not.toBeNull();
-    expect(transport.calls.filter(entry => entry.kind === 'mutation')).toHaveLength(2);
+    release();
+    await expect(firstPromise).resolves.toEqual({ ok: true, user: { id: 'user-1', balance: 10 } });
+    expect(users.find('user-1')).toEqual({ id: 'user-1', balance: 10 });
+
+    // After commit the same input runs again and lands the fresh server value.
+    await expect(users.actions.redeem.run({ campaignId: 'camp-1' })).resolves.toEqual({ ok: true, user: { id: 'user-1', balance: 20 } });
+    expect(users.find('user-1')).toEqual({ id: 'user-1', balance: 20 });
+    const mutations = transport.calls.filter(entry => entry.kind === 'mutation');
+    expect(mutations).toHaveLength(2);
+    expect(mutations.map(entry => (entry.operation as { variables: unknown }).variables)).toEqual([{ campaignId: 'camp-1' }, { campaignId: 'camp-1' }]);
   });
 });

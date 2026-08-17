@@ -3,7 +3,7 @@ import { configureDb, defineModelRuntime, f, resetRuntime , createScopeIndex, is
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ScopeRow = { id: string; bucket: string; rank: number; label: string };
-const createScopeModel = (orderFields?: ReadonlyArray<keyof ScopeRow & string>, onCompare?: () => void) =>
+const createScopeModel = (orderFields?: ReadonlyArray<keyof ScopeRow & string>, onCompare?: () => void, by: 'rank' | 'label' = 'rank') =>
   defineModelRuntime({
     id: 'SpecIntegrityScopeOrderReset',
     name: 'SpecIntegrityScopeOrderReset',
@@ -19,7 +19,7 @@ const createScopeModel = (orderFields?: ReadonlyArray<keyof ScopeRow & string>, 
         sort: {
           comparator: (left: ScopeRow, right: ScopeRow) => {
             onCompare?.();
-            return left.rank - right.rank;
+            return by === 'label' ? left.label.localeCompare(right.label) : left.rank - right.rank;
           },
           ...(orderFields === undefined ? {} : { orderFields })
         }
@@ -107,25 +107,37 @@ describe('scope order cache reset contract', () => {
     reader.unmount();
   });
 
-  it('keeps comparator scopes without orderFields conservatively resorting on member patches', () => {
+  // Work-counter axis (spec 10): a comparator scope with no declared orderFields must treat EVERY member
+  // patch as order-relevant. The served order stays correct either way because the projection sorts on read,
+  // so the consulted-comparator count is the contract, paired here with the served order.
+  it('consults the comparator again on any member patch when a comparator scope declares no orderFields', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     let comparisons = 0;
-    const rows = createScopeModel(undefined, () => {
-      comparisons += 1;
-    });
+    // The comparator reads `label`, which no orderFields list declares: a label patch must still resort.
+    const rows = createScopeModel(
+      undefined,
+      () => {
+        comparisons += 1;
+      },
+      'label'
+    );
     act(() => {
       rows.scopes.byBucket.seed({ bucket: 'shared' }, [
-        { id: 'row-2', bucket: 'shared', rank: 2, label: 'two' },
-        { id: 'row-1', bucket: 'shared', rank: 1, label: 'one' }
+        { id: 'row-2', bucket: 'shared', rank: 2, label: 'b' },
+        { id: 'row-1', bucket: 'shared', rank: 1, label: 'a' }
       ]);
     });
     const reader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'shared' }, { renderKeys: ['rank'] }));
+    expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-2']);
     const before = comparisons;
 
     act(() => {
-      rows.update('row-1', { label: 'updated' });
+      rows.update('row-1', { label: 'c' });
     });
 
+    // The membership order follows the new label even though `renderKeys` keeps the projected row values pinned to rank.
+    expect(reader.result().map(row => row.id)).toEqual(['row-2', 'row-1']);
+    expect(rows.find('row-1')).toMatchObject({ label: 'c' });
     expect(comparisons).toBeGreaterThan(before);
     reader.unmount();
   });
@@ -189,15 +201,38 @@ describe('scope order cache reset contract', () => {
     expect(index.keysOf('row-1')).toEqual([]);
   });
 
-  it('keeps the order revision stable for an unchanged complete order', () => {
-    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeOrderRevision', storage: createMemoryPlane(), prefix: () => 'dbl:' });
-    const scopeKey = compositeKey('byBucket', '{"bucket":"stable"}');
+  it('does not disturb a scope reader when the same complete order lands again', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+    const rows = defineModelRuntime({
+      id: 'SpecIntegrityScopeOrderRevision',
+      name: 'SpecIntegrityScopeOrderRevision',
+      fields: { id: f.str(), bucket: f.str(), rank: f.num(), label: f.str() },
+      scopes: { byBucket: ({ by: { bucket: 'bucket' }, sort: 'server-order' }) }
+    });
+    const landing = [
+      { id: 'row-1', bucket: 'stable', rank: 1, label: 'one' },
+      { id: 'row-2', bucket: 'stable', rank: 2, label: 'two' }
+    ];
+    act(() => {
+      rows.scopes.byBucket.seed({ bucket: 'stable' }, landing);
+    });
+    const reader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'stable' }));
+    expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-2']);
+    const renders = reader.renders();
 
-    index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]).next);
-    const revision = index.orderRevision(scopeKey);
-    index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]).next);
+    act(() => {
+      rows.scopes.byBucket.seed({ bucket: 'stable' }, landing);
+    });
+    expect(reader.renders()).toBe(renders);
+    expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-2']);
 
-    expect(index.orderRevision(scopeKey)).toBe(revision);
+    // Positive counterpart: a changed order does reach the reader.
+    act(() => {
+      rows.scopes.byBucket.seed({ bucket: 'stable' }, [landing[1]!, landing[0]!]);
+    });
+    expect(reader.renders()).toBeGreaterThan(renders);
+    expect(reader.result().map(row => row.id)).toEqual(['row-2', 'row-1']);
+    reader.unmount();
   });
 
   it.each(['delta', 'page'] as const)('deduplicates repeated incoming ids during %s reconciliation with the last payload value', coverage => {

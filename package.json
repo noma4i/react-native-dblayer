@@ -42,13 +42,12 @@
     "test": "node scripts/run-jest-shards.mjs",
     "test:invariant": "jest src/__tests__/spec/appshape/zero-loss.lifecycle.test.tsx --no-coverage",
     "test:coverage": "node scripts/run-jest-shards.mjs --coverage",
-    "test:mutation": "node scripts/run-mutation.mjs",
     "lint": "eslint .",
     "check:jsdoc": "node scripts/check-jsdoc.mjs",
+    "check:probative": "node scripts/check-probative-asserts.mjs",
     "release:notes": "node scripts/release-notes.mjs",
     "clean": "rm -rf lib",
-    "prepare": "git config core.hooksPath .githooks",
-    "test:mutation:full": "stryker run --force"
+    "prepare": "git config core.hooksPath .githooks"
   },
   "peerDependencies": {
     "@graphql-typed-document-node/core": ">=3",
@@ -61,8 +60,6 @@
     "@babel/core": "^7",
     "@babel/preset-env": "^7",
     "@graphql-typed-document-node/core": "^3",
-    "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/jest-runner": "^9.6.1",
     "@testing-library/react-native": "^14.0.1",
     "@types/jest": "^29.5.14",
     "@types/react": "^19.0.10",

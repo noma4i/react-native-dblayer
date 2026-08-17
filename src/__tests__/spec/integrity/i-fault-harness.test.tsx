@@ -41,33 +41,8 @@ const configureFaultRuntime = (storage: ReturnType<typeof createFaultStorage>) =
   configureDb({ storage: storage.plane, transport: createMockTransport() });
 };
 
-describe('fault storage harness', () => {
-  it('fails configured writes, corrupts values, and records physical write order', () => {
-    const storage = createFaultStorage();
-
-    storage.failNextSet();
-    expect(() => storage.plane.set('one', '1')).toThrow('fault: set failed');
-    expect(storage.plane.get('one')).toBeUndefined();
-    storage.plane.set('one', '1');
-
-    storage.plane.set('two', '2');
-    storage.plane.set('three', '3');
-    expect(storage.plane.get('two')).toBe('2');
-    expect(storage.plane.get('three')).toBe('3');
-
-    storage.corrupt('one');
-    expect(storage.plane.get('one')).toBe('{corrupt');
-    expect(storage.setCalls()).toEqual([
-      { key: 'one', value: '1' },
-      { key: 'one', value: '1' },
-      { key: 'two', value: '2' },
-      { key: 'three', value: '3' }
-    ]);
-  });
-});
-
 describe('persistence fault invariants', () => {
-  it('reports tombstone expiry before deleting the retention guard', () => {
+  it('blocks a snapshot resurrect while the tombstone lives, then expires it by TTL and admits the row again', () => {
     const clock = jest.spyOn(Date, 'now').mockReturnValue(0);
     try {
       const storage = createFaultStorage();
@@ -76,13 +51,24 @@ describe('persistence fault invariants', () => {
       diagnostics().reset();
       rows.insert({ id: 'row-1', label: 'local' });
       rows.destroy('row-1');
-      clock.mockReturnValue(24 * 60 * 60 * 1000 + 1);
+      getApplyRuntime().flushCacheSnapshots();
 
-      // Tombstones decay by TTL on the model's next persisted flush.
+      // The live tombstone is on disk and refuses a snapshot-origin resurrect of the identity.
+      const tombstonesKey = compositeStorageKey('dbl:', 'tombstones', rows.modelId);
+      expect(storage.plane.get(tombstonesKey)).toBe(encodePersistence({ 'row-1': { at: 0 } }));
+      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'resurrect' }] }]));
+      expect(rows.find('row-1')).toBeUndefined();
+
+      // Tombstones decay by TTL on the model's next persisted flush: the guard leaves the disk,
+      // the loss is counted, and the same snapshot write now lands.
+      clock.mockReturnValue(24 * 60 * 60 * 1000 + 1);
       rows.insert({ id: 'row-2', label: 'touch' });
       getApplyRuntime().flushCacheSnapshots();
 
+      expect(storage.plane.get(tombstonesKey)).toBeUndefined();
       expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'tombstone-expiry', model: rows.modelId, count: 1 });
+      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'resurrect' }] }]));
+      expect(rows.find('row-1')).toEqual({ id: 'row-1', label: 'resurrect' });
     } finally {
       clock.mockRestore();
     }

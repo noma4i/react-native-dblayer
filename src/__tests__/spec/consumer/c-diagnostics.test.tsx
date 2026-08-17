@@ -37,6 +37,7 @@ describe('read diagnostics', () => {
     act(() => {
       items.insert({ id: 'row-1', status: 'ready', score: 1 });
     });
+    expect(reader.result().map(row => row.id)).toEqual(['row-1']);
     const delta = diagnostics().snapshot();
     // The one inserted row reaches the delta read-engine path once.
     expect(delta.readEngineDeltaRows).toBe(1);
@@ -44,7 +45,9 @@ describe('read diagnostics', () => {
       items.replace('row-1', { id: 'row-2', status: 'ready', score: 2 });
     });
 
-    // Identity replace reaches the reader as ordinary deltas: no read path recomputes a whole result.
+    // The mounted reader serves the successor row with its new field values, old identity gone.
+    expect(reader.result()).toEqual([{ id: 'row-2', status: 'ready', score: 2 }]);
+    // Companion counter: the replace traveled the delta read-engine path, not a recompute.
     const afterReplace = diagnostics().snapshot();
     expect(afterReplace.readEngineDeltaRows).toBeGreaterThan(delta.readEngineDeltaRows);
     reader.unmount();
@@ -99,13 +102,18 @@ describe('read diagnostics', () => {
     const items = createItems('Global');
     act(() => {
       items.insert({ id: 'row-1', status: 'ready', score: 1 });
+      items.insert({ id: 'row-2', status: 'ready', score: 2 });
     });
 
-    const snapshot = diagnostics().snapshot();
-    snapshot.commits = 999;
+    // The device global itself (not a harness re-export) serves the counters for the 2 commits.
+    const device = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as ReturnType<typeof diagnostics>;
+    const first = device.snapshot();
+    expect(first.commits).toBe(2);
+    expect(first.readEngineApplies).toBe(0);
 
-    expect((globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__).toBeDefined();
-    expect(diagnostics().snapshot().commits).not.toBe(999);
+    // Mutating a taken snapshot does not write through: the next snapshot still reports 2 commits.
+    first.commits = 999;
+    expect(device.snapshot().commits).toBe(2);
   });
 
   it('ignores empty loss reports and retains only the newest one hundred events', () => {

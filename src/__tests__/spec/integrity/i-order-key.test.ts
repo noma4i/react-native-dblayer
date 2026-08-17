@@ -29,14 +29,14 @@ describe('order key primitives', () => {
 
   it('keyBefore and keyAfter produce keys strictly outside the given key', () => {
     const anchor = keyBetween(undefined, undefined);
-    expect(compareCodepoints(keyBefore(anchor), anchor)).toBe(-1);
-    expect(compareCodepoints(anchor, keyAfter(anchor))).toBe(-1);
+    expect([keyBefore(anchor), anchor, keyAfter(anchor)]).toEqual(['F', 'U', 'j']);
   });
 
-  it('keyBetween throws on inverted bounds', () => {
+  it('keyBetween throws on inverted bounds and serves a key on the same bounds in order', () => {
     const lower = keyBetween(undefined, undefined);
     const upper = keyAfter(lower);
-    expect(() => keyBetween(upper, lower)).toThrow();
+    expect(() => keyBetween(upper, lower)).toThrow('Invalid fractional order bounds');
+    expect(keyBetween(lower, upper)).toBe('b');
   });
 
   it('[R4] sustains 5000 sequential insertions into one gap without a precision limit', () => {
@@ -104,10 +104,10 @@ describe('order key sequences', () => {
     expectStrictlyIncreasing([tail, ...appended]);
   });
 
-  it('keeps every generated sequence deterministic for identical inputs', () => {
-    const firstSequence = keysForSequence(20, undefined, undefined);
-    const secondSequence = keysForSequence(20, undefined, undefined);
-    expect(firstSequence).toEqual(secondSequence);
+  it('keeps every generated sequence deterministic and evenly spread for identical inputs', () => {
+    // The spread is the contract: 6 keys over an open range are the even base62 stops, not chained midpoints.
+    expect(keysForSequence(6, undefined, undefined)).toEqual(['8', 'H', 'Q', 'Z', 'i', 'r']);
+    expect(keysForSequence(6, undefined, undefined)).toEqual(keysForSequence(6, undefined, undefined));
   });
 
   it('sorting generated keys with the default lexical string comparison matches compareCodepoints', () => {

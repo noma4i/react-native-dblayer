@@ -106,6 +106,7 @@ describe('provider-owned query runtime', () => {
   let removeAppStateListener: jest.Mock;
 
   beforeEach(() => {
+    appStateHandler = undefined;
     removeAppStateListener = jest.fn();
     jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
       appStateHandler = handler;
@@ -146,8 +147,10 @@ describe('provider-owned query runtime', () => {
     act(() => root.unmount());
   });
 
-  it('does not attach AppState maintenance before boot completes', async () => {
+  it('runs no foreground maintenance before boot completes and runs it after', async () => {
     setupSpecRuntime();
+    const users = dbl.defineModel('SpecProviderBootMaintenance', { schema: UserSchema });
+    users.insert({ id: 'user', name: 'Ready' });
     let resolveBoot!: () => void;
     const boot = jest.spyOn(dbl.lifecycleModule, 'bootDb').mockReturnValue(
       new Promise(resolve => {
@@ -160,12 +163,24 @@ describe('provider-owned query runtime', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
     });
 
-    expect(AppState.addEventListener).not.toHaveBeenCalled();
+    // Before boot resolves there is no foreground handler at all: a foreground event cannot reach
+    // maintenance, and the store is untouched.
+    expect(appStateHandler).toBeUndefined();
+    expect(users.where({}).read().map(row => row.id)).toEqual(['user']);
+
     await act(async () => {
       resolveBoot();
       await Promise.resolve();
     });
+
+    // After boot the handler exists and a foreground event runs without disturbing the data.
     expect(AppState.addEventListener).toHaveBeenCalledTimes(1);
+    expect(typeof appStateHandler).toBe('function');
+    await act(async () => {
+      appStateHandler?.('active');
+      await Promise.resolve();
+    });
+    expect(users.where({}).read().map(row => row.id)).toEqual(['user']);
 
     act(() => root.unmount());
     boot.mockRestore();

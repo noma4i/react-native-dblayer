@@ -164,32 +164,50 @@ describe('existing GraphQL boundary', () => {
     expect(rows[0]).not.toHaveProperty('clientMutationId');
   });
 
-  it('[OP18] model-producing relation action and live documents stay owned by their model declarations', () => {
-    const fake = createFakeTransport();
+  it('[OP18] relation action and live documents execute only through their owning model terminals', async () => {
+    const fake = createFakeTransport({
+      query: [{ rows: [{ id: 'owned-relation', label: 'relation' }] }],
+      mutation: [{ createRow: { row: { id: 'owned-action', label: 'action' } } }]
+    });
     dbLayer.configureDb({ storage: createMemoryPlane(), transport: fake.transport });
     const fixture = createModelFixture('SpecExistingGraphqlOwnership');
 
+    // Declaring the model performs no transport work and the declarations expose no terminal of their own.
     expect(fake.queryCalls).toEqual([]);
     expect(fake.mutationCalls).toEqual([]);
     expect(fake.subscriptionCalls).toEqual([]);
-    expect(fixture.relationDeclaration.document).toBe(fixture.relationDocument);
-    expect(fixture.actionDeclaration.document).toBe(fixture.actionDocument);
-    expect(fixture.liveDeclaration.document).toBe(fixture.liveDocument);
-    expect({
-      relationFetch: 'fetch' in fixture.relationDeclaration,
-      actionRun: 'run' in fixture.actionDeclaration,
-      liveSubscribe: 'subscribe' in fixture.liveDeclaration
-    }).toEqual({ relationFetch: false, actionRun: false, liveSubscribe: false });
-    expect(typeof fixture.model.rows({ bucket: 'owned' }).fetch).toBe('function');
-    expect(typeof fixture.model.actions.create.run).toBe('function');
-    expect(typeof fixture.model.events.changed.subscribe).toBe('function');
+    expect('fetch' in fixture.relationDeclaration).toBe(false);
+    expect('run' in fixture.actionDeclaration).toBe(false);
+    expect('subscribe' in fixture.liveDeclaration).toBe(false);
+
+    // The same documents execute through the model terminals and land observable rows.
+    await fixture.model.rows({ bucket: 'owned' }).fetch();
+    expect(fixture.model.find('owned-relation')).toEqual({ id: 'owned-relation', label: 'relation' });
+
+    await fixture.model.actions.create.run({ label: 'action' });
+    expect(fixture.model.find('owned-action')).toEqual({ id: 'owned-action', label: 'action' });
+
+    cleanupRegistry.add(acquireModelSubscriptions());
+    const subscription = fake.subscriptionCalls.find(call => call.options.query === fixture.liveDocument)!;
+    expect(subscription.options.variables).toEqual(liveVariables);
+    subscription.handlers.next({ rowChanged: { row: { id: 'owned-live', label: 'live' } } });
+    expect(fixture.model.find('owned-live')).toEqual({ id: 'owned-live', label: 'live' });
   });
 
-  it('[OP19] model-less GraphQL has no DBLayer terminal', () => {
-    expect({
-      defineCommand: 'defineCommand' in dbLayer,
-      defineFetch: 'defineFetch' in dbLayer
-    }).toEqual({ defineCommand: false, defineFetch: false });
+  it('[OP19] model-less GraphQL has no DBLayer terminal while a model declaration executes the document', async () => {
+    // Negative half: the package surface offers no standalone terminal for a raw document.
+    expect('defineCommand' in dbLayer).toBe(false);
+    expect('defineFetch' in dbLayer).toBe(false);
+
+    // Positive half: attaching the same kind of document to a model is the path that executes and lands a row.
+    const serverRow = { id: 'model-owned', label: 'terminal' };
+    const fake = createFakeTransport({ mutation: [{ createRow: { row: serverRow } }] });
+    dbLayer.configureDb({ storage: createMemoryPlane(), transport: fake.transport });
+    const fixture = createModelFixture('SpecExistingGraphqlNoTerminal');
+
+    await fixture.model.actions.create.run({ label: 'terminal' });
+    expect(fake.mutationCalls).toEqual([{ mutation: fixture.actionDocument, variables: { input: { label: 'terminal' } } }]);
+    expect(fixture.model.find('model-owned')).toEqual(serverRow);
   });
 
   it('[S12] [I13] [OP18] [T5] relation action and live transport receive the original document and exact generated variables', async () => {

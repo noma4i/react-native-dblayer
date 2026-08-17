@@ -1,4 +1,4 @@
-import { configureDb , createOperationState, planRequestFailureRollback, readCommittedOnceKeys, readQuarantineEntries, serializeOperationInput , encodePersistence, jsonRoundTrip } from '../../testApi';
+import { bootDb, configureDb , createOperationState, defineModel, defineShape, f, getOperationState, readCommittedOnceKeys, readQuarantineEntries, serializeOperationInput , encodePersistence, jsonRoundTrip } from '../../testApi';
 import type { OperationRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
@@ -9,6 +9,8 @@ import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/
  * hydrate key-retention rules.
  */
 const PREFIX = 'dbl:';
+
+const actionDocument = { kind: 'Document', definitions: [] } as never;
 
 const baseRecord = (operationId: string, overrides: Partial<OperationRecord> = {}): Omit<OperationRecord, 'status'> => ({
   operationId,
@@ -546,29 +548,87 @@ describe('hydrate key retention', () => {
     expect(again.hasCommitted('carried-once')).toBe(true);
   });
 
-  it('writes null persist entries once the ledger empties so stale storage keys clear', () => {
-    const { state } = setup();
+  it('clears the stale storage key once the ledger empties', () => {
+    const { storage, state } = setup();
     state.begin(baseRecord('op-1'));
+    expect(String(storage.get(`${PREFIX}ops`))).toContain('"op-1"');
+
     state.remove('op-1');
 
-    expect(state.persistEntries()).toEqual([]);
+    // The key is gone from the plane, so a fresh process hydrates an empty ledger.
+    expect(storage.get(`${PREFIX}ops`)).toBeUndefined();
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    fresh.hydrate();
+    expect(fresh.get('op-1')).toBeUndefined();
+    expect(fresh.open()).toEqual([]);
   });
 
-  it('[OP34] closes a failed operation as retryable only while a temp row or rollback snapshot exists', () => {
-    setup();
-    const bare: OperationRecord = { ...baseRecord('op-bare'), status: 'pending' };
-    const withTemp: OperationRecord = { ...baseRecord('op-temp'), tempIds: ['tmp:1'], status: 'pending' };
+  it('[OP34] closes a failed operation as retryable only while a temp row or rollback snapshot exists', async () => {
+    const storage = createMemoryPlane();
+    const transport = createMockTransport({
+      mutation: async () => {
+        throw new Error('transport down');
+      }
+    });
+    configureDb({ storage, transport });
+    const RowSchema = defineShape<{ id: string; body: string }>()({ body: f.str() });
+    const optimistic = defineModel('SpecOp34Optimistic', {
+      schema: RowSchema,
+      maintenance: { dropTempRowsAfterMs: 60_000 },
+      actions: owner => ({
+        send: owner.gql.action(actionDocument, {
+          mode: 'request',
+          result: 'send',
+          variables: (input: { body: string }) => ({ input }),
+          optimistic: { root: { insert: { select: ({ input, tempId }) => ({ id: tempId, body: input.body }) } } },
+          root: { insert: { select: ({ data }) => data.send.row } }
+        })
+      })
+    });
+    const bare = defineModel('SpecOp34Bare', {
+      schema: RowSchema,
+      actions: owner => ({
+        send: owner.gql.action(actionDocument, {
+          mode: 'request',
+          result: 'send',
+          variables: (input: { body: string }) => ({ input }),
+          root: { insert: { select: ({ data }) => data.send.row } }
+        })
+      })
+    });
+    await bootDb();
 
-    // Nothing local to retry from -> the close is terminal ('rolledback', not 'failed').
-    expect(planRequestFailureRollback(bare, () => undefined, () => []).transition).toEqual({
-      kind: 'close',
+    // A temp row exists, so the failed close stays retryable and the draft is still readable.
+    await expect(optimistic.actions.send.run({ body: 'draft' })).rejects.toThrow('transport down');
+    const failed = getOperationState()
+      .open()
+      .filter((record: OperationRecord) => record.model === 'SpecOp34Optimistic');
+    expect(failed.map((record: OperationRecord) => [record.model, record.status])).toEqual([['SpecOp34Optimistic', 'failed']]);
+    expect(failed[0]!.tempIds).toHaveLength(1);
+    expect(optimistic.find(failed[0]!.tempIds[0]!)).toEqual(expect.objectContaining({ body: 'draft' }));
+
+    // Nothing local to retry from: a crashed request with no temp row and no snapshot is closed
+    // terminally by the boot fsck, so nothing stays retryable after the restart.
+    getOperationState().begin({
       operationId: 'op-bare',
-      status: 'rolledback'
+      actionKey: 'SpecOp34Bare:send',
+      actionMode: 'request',
+      model: 'SpecOp34Bare',
+      tempIds: [],
+      rowIds: ['row-bare'],
+      intent: 'insert',
+      createdAt: 1000
     });
-    expect(planRequestFailureRollback(withTemp, () => undefined, () => []).transition).toEqual({
-      kind: 'close',
-      operationId: 'op-temp',
-      status: 'failed'
-    });
+    configureDb({ storage, transport });
+    await bootDb();
+    expect(getOperationState().get('op-bare')?.status).toBe('rolledback');
+    expect(bare.where({}).read()).toEqual([]);
+
+    const persisted = JSON.parse(String(storage.get(`${PREFIX}ops`))) as { payload: { operations: Record<string, OperationRecord> } };
+    expect(Object.values(persisted.payload.operations).map(record => [record.model, record.status]).sort()).toEqual([
+      ['SpecOp34Bare', 'rolledback'],
+      ['SpecOp34Optimistic', 'failed']
+    ]);
+    expect(bare.where({}).read()).toEqual([]);
   });
 });

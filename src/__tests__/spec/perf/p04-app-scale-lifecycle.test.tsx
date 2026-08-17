@@ -294,7 +294,7 @@ describe('app-scale lifecycle', () => {
     jest.restoreAllMocks();
   });
 
-  it('drains resume in chunks within budget, once per resume, skipping inactive queries', async () => {
+  it('drains one resume in chunks, refetching every active query exactly once and landing its rows', async () => {
     const resuming = { current: false };
     const releaseQueue: Array<() => void> = [];
     const transport = setupEnsembleTransport(resuming, releaseQueue);
@@ -325,6 +325,29 @@ describe('app-scale lifecycle', () => {
       }
       resuming.current = false;
 
+      // Every active query was refetched exactly once during the drain.
+      const keyOf = (variables: { status?: string; chatId?: string; value?: number }): string =>
+        variables.status !== undefined ? `chat:${variables.status}` : variables.chatId !== undefined ? `thread:${variables.chatId}` : `digest:${variables.value}`;
+      const resumeKeys = transport.calls
+        .slice(callsBeforeResume)
+        .map(call => keyOf((call.operation as { variables: { status?: string; chatId?: string; value?: number } }).variables))
+        .sort();
+      const expectedKeys = [
+        ...CHAT_STATUSES.map(status => `chat:${status}`),
+        ...MOUNTED_THREAD_IDS.map(chatId => `thread:${chatId}`),
+        'digest:1',
+        'digest:2'
+      ].sort();
+      expect(resumeKeys).toEqual(expectedKeys);
+
+      // The refetched rows landed and are readable through the models.
+      expect(models.chats.find('open-refresh')).toMatchObject({ id: 'open-refresh', status: 'open', kind: 'normal' });
+      expect(models.messages.find('thread-0-refresh')).toMatchObject({ id: 'thread-0-refresh', chatId: 'thread-0', sequenceNumber: 999, body: 'refresh' });
+
+      // One resume produces one drain: nothing keeps refetching after the queue is empty.
+      const callsAfterDrain = transport.calls.length;
+      await settle(2);
+      expect(transport.calls.length).toBe(callsAfterDrain);
       expect(diagnostics().snapshot().resumeDrains).toBe(1);
     } finally {
       resuming.current = false;

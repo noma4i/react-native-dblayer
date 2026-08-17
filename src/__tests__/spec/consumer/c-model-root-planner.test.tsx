@@ -1,7 +1,7 @@
 import path from 'node:path';
 import ts from 'typescript';
 import { act } from 'react';
-import { compileModelRootPlan, configureDb, defineModel, defineShape, f } from '../../testApi';
+import { configureDb, defineModel, defineModelRuntime, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type Row = { id: string; label: string; count: number };
@@ -136,86 +136,116 @@ const expectNoResponseWrite = async (
 };
 
 describe('model root planner', () => {
-  it('[W24] [T10] rejects every malformed runtime root and normalizes numeric destroy ids', () => {
-    const owner = {
-      modelId: 'SpecModelRootPlannerRuntimeEdges',
-      planRows: () => []
-    };
-
-    expect(() => compileModelRootPlan(owner, null as never, undefined)).toThrow('must contain exactly one root form');
-    expect(() => compileModelRootPlan(owner, { insert: undefined } as never, undefined)).toThrow('must contain exactly one root form');
-    expect(() => compileModelRootPlan(owner, { update: undefined } as never, undefined)).toThrow('must contain exactly one root form');
-    expect(() => compileModelRootPlan(owner, { destroy: undefined } as never, undefined)).toThrow('must contain exactly one root form');
-    expect(() =>
-      compileModelRootPlan(owner, { update: { select: () => ({ id: false, patch: {} }) } } as never, undefined)
-    ).toThrow('update requires a non-empty id');
-    expect(compileModelRootPlan(owner, { update: { select: () => null } } as never, undefined)).toEqual([]);
-    expect(compileModelRootPlan(owner, { update: { select: () => [] } } as never, undefined)).toEqual([]);
-    expect(compileModelRootPlan(owner, { destroy: { select: () => null } } as never, undefined)).toEqual([]);
-    expect(compileModelRootPlan(owner, { destroy: { select: () => [] } } as never, undefined)).toEqual([]);
-    expect(compileModelRootPlan(owner, { destroy: { select: () => 7 } } as never, undefined)).toEqual([
-      { kind: 'destroy', model: owner.modelId, ids: ['7'] }
-    ]);
-
+  it('[W24] [T10] rejects every malformed runtime root through the action path and normalizes numeric destroy ids', async () => {
+    const existing = { id: 'malformed-guard', label: 'before', count: 1 };
+    const responseRow = { id: 'malformed-response', label: 'response', count: 2 };
     const disappearingDestroy = new Proxy(
-      { destroy: { select: () => 'row-1' } },
+      { destroy: { select: () => existing.id } },
       {
         ownKeys: () => ['destroy'],
         has: () => false
       }
     );
-    expect(() => compileModelRootPlan(owner, disappearingDestroy as never, undefined)).toThrow('must contain exactly one root form');
+    const malformedRoots: Array<[string, unknown, string]> = [
+      ['NullRoot', null, 'must contain exactly one root form'],
+      ['InsertUndefined', { insert: undefined }, 'must contain exactly one root form'],
+      ['UpdateUndefined', { update: undefined }, 'must contain exactly one root form'],
+      ['DestroyUndefined', { destroy: undefined }, 'must contain exactly one root form'],
+      ['DisappearingDestroy', disappearingDestroy, 'must contain exactly one root form'],
+      ['UpdateFalseId', { update: { select: () => ({ id: false, patch: {} }) } }, 'update requires a non-empty id']
+    ];
+    for (const [suffix, root, error] of malformedRoots) {
+      const { model, unrelated, storage } = defineActionModel(`SpecModelRootPlannerMalformed${suffix}`, { save: { row: responseRow } }, root as never);
+      model.insert(existing);
+      await expectNoResponseWrite(model, unrelated, storage, { label: 'malformed', count: 1 }, existing, error, [responseRow.id]);
+    }
+
+    // Null and empty update/destroy selections resolve as zero-work no-ops on the live store.
+    const noOpRoots: Array<[string, unknown]> = [
+      ['UpdateNull', { update: { select: () => null } }],
+      ['UpdateEmpty', { update: { select: () => [] } }],
+      ['DestroyNull', { destroy: { select: () => null } }],
+      ['DestroyEmpty', { destroy: { select: () => [] } }]
+    ];
+    for (const [suffix, root] of noOpRoots) {
+      const { model, unrelated, storage } = defineActionModel(`SpecModelRootPlannerNoOpRoot${suffix}`, { save: { row: responseRow } }, root as never);
+      model.insert(existing);
+      const work = createWorkProbe(model, unrelated, storage, [existing.id, responseRow.id]);
+      await act(async () => {
+        await model.actions.run.run({ label: 'no-op', count: 1 });
+      });
+      expect(model.find(existing.id)).toEqual(existing);
+      expect(model.find(responseRow.id)).toBeUndefined();
+      work.assert({ commits: 0, affectedTicks: [0, 0] });
+      work.unmount();
+    }
+
+    // A numeric destroy selection is normalized to the string row id and removes exactly that row.
+    const numericRow = { id: '7', label: 'numeric', count: 7 };
+    const { model, unrelated, storage } = defineActionModel(
+      'SpecModelRootPlannerNumericDestroy',
+      { save: { row: responseRow } },
+      { destroy: { select: () => 7 } } as never
+    );
+    model.insert(numericRow);
+    model.insert(existing);
+    const work = createWorkProbe(model, unrelated, storage, [numericRow.id]);
+    await act(async () => {
+      await model.actions.run.run({ label: 'destroy-7', count: 1 });
+    });
+    expect(model.find(numericRow.id)).toBeUndefined();
+    expect(model.find(existing.id)).toEqual(existing);
+    work.assert({ commits: 1, affectedTicks: [1] });
+    work.unmount();
   });
 
-  it('routes empty insert through the optional owner empty planner', () => {
-    const calls: string[] = [];
-    const emptyOwner = {
-      modelId: 'SpecModelRootPlannerEmptyOwner',
-      planRows: () => {
-        calls.push('rows');
-        return [];
-      },
-      planEmpty: () => {
-        calls.push('empty');
-        return [];
-      }
-    };
+  it('routes an empty query landing through the scope empty planner and keeps empty action inserts inert', async () => {
+    type ScopedRow = { id: string; label: string; count: number; bucket: string };
+    type ScopeValue = { bucket: string };
+    const responses: Array<{ rows: ScopedRow[] }> = [
+      { rows: [{ id: 'scoped-1', label: 'first', count: 1, bucket: 'a' }, { id: 'scoped-2', label: 'second', count: 2, bucket: 'a' }] },
+      { rows: [] }
+    ];
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: responses.shift() as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const scoped = defineModelRuntime({
+      id: 'SpecModelRootPlannerScopeEmpty',
+      name: 'SpecModelRootPlannerScopeEmpty',
+      fields: { label: f.str(), count: f.num(), bucket: f.str() },
+      scopes: { byBucket: { by: { bucket: 'bucket' }, sort: { field: 'count', dir: 'asc' } } }
+    });
+    const query = scoped.query<{ rows: ScopedRow[] }, ScopeValue, ScopeValue, ScopedRow>('scope-empty', {
+      document: actionDocument as never,
+      vars: value => value,
+      select: data => data.rows,
+      into: scoped.scopes.byBucket
+    });
 
-    expect(
-      compileModelRootPlan(
-        emptyOwner,
-        { insert: { select: () => [] as readonly Row[] } },
-        undefined
-      )
-    ).toEqual([]);
-    expect(calls).toEqual(['empty']);
-    calls.length = 0;
+    await query.fetch({ bucket: 'a' });
+    expect(scoped.scopes.byBucket.read({ bucket: 'a' }).map(row => row.id)).toEqual(['scoped-1', 'scoped-2']);
 
-    expect(
-      compileModelRootPlan(
-        emptyOwner,
-        { insert: { select: () => null } },
-        undefined
-      )
-    ).toEqual([]);
-    expect(calls).toEqual([]);
+    // A scope destination owns an empty planner: an EMPTY (not nullish) landing is authoritative
+    // and clears the scope membership.
+    await query.fetch({ bucket: 'a' });
+    expect(scoped.scopes.byBucket.read({ bucket: 'a' })).toEqual([]);
 
-    const ownerWithoutEmpty = {
-      modelId: 'SpecModelRootPlannerFallbackOwner',
-      planRows: () => {
-        calls.push('rows');
-        return [];
-      }
-    };
-
-    expect(
-      compileModelRootPlan(
-        ownerWithoutEmpty,
-        { insert: { select: () => [] as readonly Row[] } },
-        undefined
-      )
-    ).toEqual([]);
-    expect(calls).toEqual([]);
+    // A plain action owner has no empty planner: an empty insert selection performs zero work.
+    const existing = { id: 'empty-owner-row', label: 'before', count: 1 };
+    const { model, unrelated, storage } = defineActionModel(
+      'SpecModelRootPlannerFallbackOwner',
+      { save: { rows: [] } },
+      { insert: { select: ({ data }: RootContext<InsertInput, SaveBatchData>) => data.save.rows as readonly Row[] } }
+    );
+    model.insert(existing);
+    const work = createWorkProbe(model, unrelated, storage, [existing.id]);
+    await act(async () => {
+      await model.actions.run.run({ label: 'empty', count: 0 });
+    });
+    expect(model.find(existing.id)).toEqual(existing);
+    work.assert({ commits: 0, affectedTicks: [0] });
+    work.unmount();
   });
 
   it('lands an insert root for one owner row', async () => {

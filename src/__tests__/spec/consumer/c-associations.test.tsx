@@ -220,6 +220,9 @@ describe('associations', () => {
       })
     });
 
+    // The contract of this case is the pair of `@ts-expect-error` markers above: a function-valued
+    // effect never compiles. There is no runtime counterpart to assert - such a declaration cannot be
+    // written without the compiler refusing it, and it throws inside key building if forced through.
     expect(Message.key).toBe('SpecFunctionEffectMessage');
   });
 });

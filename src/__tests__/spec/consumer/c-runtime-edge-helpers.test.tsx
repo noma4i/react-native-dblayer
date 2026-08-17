@@ -1,390 +1,731 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import {
-  arraysShallowEqual,
+  belongsTo,
+  bootDb,
+  computeSchemaFingerprints,
   configureDb,
-  compositeKey,
-  computePhase,
-  createCommitEnvelope,
   createModelContext,
-  createModelCriteria,
-  createModelScopeKeys,
-  createProjectionGate,
+  DB_FORMAT_VERSION,
   defineModel,
+  defineModelRuntime,
   defineShape,
+  encodePersistence,
   f,
   getCommitBus,
   getDbRuntimeConfig,
-  getDbQueryClient,
-  getApplyRuntime,
-  isFetchedResult,
-  limitRows,
-  isTempRowProtectedByModel,
-  refetchActiveFetchReaders,
-  registerActiveFetchReaders,
-  registerMaterializationReconciler,
-  resetRuntime,
-  rowsShallowEqual,
   resumeFetchReaders,
-  sortModelReadRows,
-  useLiveRead,
-  useMergedScopeRows
+  useMergedScopeRows,
+  writePersistenceManifest,
+  type DbTransport
 } from '../../testApi';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { compositeStorageKey, createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, setupSpecRuntime } from '../helpers/harness';
 
-describe('runtime edge helpers', () => {
-  it('short-circuits shallow array comparison when both references are identical', () => {
-    const rows = [{ id: 'same' }];
-    const equals = jest.fn(() => true);
-    expect(arraysShallowEqual(rows, rows, equals)).toBe(true);
-    expect(equals).not.toHaveBeenCalled();
+type Row = { id: string; bucket: string; label: string };
+type QueryScope = { scope: string };
+
+const document = { kind: 'Document', definitions: [] } as never;
+
+const createBucketRows = (suffix: string) =>
+  defineModelRuntime({
+    id: `SpecRuntimeEdgeRows${suffix}`,
+    name: `SpecRuntimeEdgeRows${suffix}`,
+    fields: { bucket: f.str(), label: f.str() },
+    scopes: { byBucket: { by: { bucket: 'bucket' } } }
   });
 
-  it('ignores loss notifications before runtime configuration', () => {
+const createModelQuery = (rows: ReturnType<typeof createBucketRows>, key: string, options: { resumeStaleTime?: number | null } = {}) =>
+  rows.query<{ rows: Row[] }, QueryScope, string, Row>('list', {
+    document,
+    key,
+    vars: scope => ({ scope }),
+    select: data => data.rows,
+    ...options
+  });
+
+describe('commits before runtime configuration', () => {
+  // This describe must stay first in the file: configuredness survives resetRuntime, so the
+  // unconfigured branch is only reachable before the first configureDb of the suite process.
+  it('ignores a loss published before configureDb and prunes the same loss once configured', async () => {
     expect(() => getDbRuntimeConfig()).toThrow('configureDb must be called');
-    expect(() =>
-      getCommitBus().publish({
-        rows: [{ model: 'Rows', id: 'row-1', fields: null, kind: 'destroy' }],
-        scopes: [],
-        pending: [],
-        scopeChanges: []
-      })
-    ).not.toThrow();
-  });
-
-  it('memoizes model relations after their first resolution', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const relations = jest.fn(() => ({}));
-    const context = createModelContext({
-      modelId: 'SpecRuntimeEdgeContext',
-      scopeNames: [],
-      relations,
-      applyWriteGate: (_previous, incoming) => incoming
-    });
-
-    const resolvedRelations = context.resolvedRelations();
-    expect(context.resolvedRelations()).toBe(resolvedRelations);
-    expect(relations).toHaveBeenCalledTimes(1);
-  });
-
-  it('enforces revision apply boundaries and filters fields newer than a response', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const context = createModelContext<{ id: string; changed?: string; removed?: string; untouched?: string }>({
-      modelId: 'SpecRuntimeEdgeRevisions',
-      scopeNames: [],
-      relations: () => ({}),
-      applyWriteGate: (_previous, incoming) => incoming
-    });
-    const revisions = context.revisions;
-
-    expect(() => revisions.notePut('row-1', ['changed'], false)).toThrow('revision apply is not active');
-    expect(() => revisions.noteDestroy('row-1')).toThrow('revision apply is not active');
-    expect(() => revisions.commitApply()).toThrow('revision apply is not active');
-
-    revisions.beginApply(2);
-    expect(() => revisions.beginApply(3)).toThrow('revision apply already active');
-    revisions.notePut('row-1', ['changed', 'removed'], false);
-    revisions.commitApply();
-
-    expect(revisions.admitRow({ id: 'row-1', changed: 'remote' }, undefined, 1)).toBeNull();
-    expect(revisions.admitRow({ id: 'row-1', changed: 'remote', removed: 'remote' }, { id: 'row-1', changed: 'local' }, 1)).toEqual({
-      id: 'row-1',
-      changed: 'local'
-    });
-    expect(revisions.admitPatch('row-2', { changed: 'remote' }, [], { id: 'row-2' }, 1)).toEqual({
-      patch: { changed: 'remote' },
-      remove: []
-    });
-    expect(revisions.admitPatch('row-1', { changed: 'remote' }, ['removed'], { id: 'row-1', changed: 'local' }, 1)).toBeNull();
-    expect(
-      revisions.admitPatch(
-        'row-1',
-        { changed: 'remote', untouched: 'accepted' },
-        ['removed', 'absent'],
-        { id: 'row-1', changed: 'local', removed: 'local' },
-        1
-      )
-    ).toEqual({ patch: { untouched: 'accepted' }, remove: ['absent'] });
-
-    revisions.beginApply(3);
-    revisions.noteDestroy('row-3');
-    revisions.commitApply();
-    expect(revisions.admitPatch('row-3', { changed: 'remote' }, [], { id: 'row-3' }, 2)).toBeNull();
-    expect(revisions.admitDestroy('row-3', 2)).toBe(false);
-    expect(revisions.admitDestroy('row-3', undefined)).toBe(true);
-  });
-
-  it('applies explicit field removal through the shared commit planner', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const schema = defineShape<{ id: string; retained: string; removed?: string }>()({
-      retained: f.str(),
-      removed: f.str().optional()
-    });
-    const Model = defineModel('SpecRuntimeEdgeRemove', { schema });
-    Model.insert({ id: 'row-1', retained: 'retained', removed: 'remove-me' });
-
-    getApplyRuntime().commit(
-      createCommitEnvelope([
-        { kind: 'patch', model: Model.key, id: 'row-1', patch: {}, remove: ['removed'] }
-      ])
-    );
-
-    expect(Model.find('row-1')).toEqual({ id: 'row-1', retained: 'retained' });
-  });
-
-  it('classifies an error-only observer result as fetched', () => {
-    expect(isFetchedResult({ dataUpdatedAt: 0, errorUpdatedAt: 1 })).toBe(true);
-    expect(isFetchedResult({ dataUpdatedAt: 0, errorUpdatedAt: 0 })).toBe(false);
-    expect(
-      computePhase({
-        isInactive: false,
-        isError: true,
-        hasFetchedData: false,
-        hasData: false,
-        isFetching: false,
-        isPaused: false,
-        committedRowsDied: false,
-        isRefreshing: false,
-        isFetchingNextPage: false,
-        retryAttempt: 0
-      })
-    ).toBe('error');
-  });
-
-  it('reuses projected rows when equivalent render-key arrays are recreated', () => {
-    const gate = createProjectionGate<{ id: string; label: string }, { id: string; label: string }>();
-    let labelReads = 0;
-    const row = {
-      id: 'row-1',
-      get label() {
-        labelReads += 1;
-        return 'first';
-      }
-    };
-    const rows = [row];
-    const keys = ['label'] as const;
-    const first = gate.projectRows(rows, { renderKeys: keys });
-    const readsAfterFirst = labelReads;
-    const second = gate.projectRows(rows, { renderKeys: keys });
-    const equalKeys = gate.projectRows(rows, { renderKeys: ['label'] });
-
-    expect(second).toBe(first);
-    expect(equalKeys).toBe(first);
-    expect(labelReads).toBe(readsAfterFirst);
-
-    const withoutKeys = gate.projectRows(rows, {});
-    const emptyKeys = gate.projectRows(rows, { renderKeys: [] });
-    expect(emptyKeys).toBe(withoutKeys);
-    expect(gate.projectRows(rows, { renderKeys: ['label'] })).toBe(withoutKeys);
-    expect(gate.projectValue('direct', { version: 1 }, { id: 'direct', label: 'value' })).toEqual({ id: 'direct', label: 'value' });
-  });
-
-  it('keeps the value read at render while nothing was published, re-reads on a publish landed before attach, and accepts pending dependencies', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    let calls = 0;
-    let latest = 0;
-    const Probe = () => {
-      latest = useLiveRead(
-        () => {
-          calls += 1;
-          return calls;
-        },
-        [{ kind: 'pending', model: 'RuntimeEdgeRows', id: 'row-1' }]
-      );
-      return null;
-    };
-    let root!: TestRenderer.ReactTestRenderer;
-
-    act(() => {
-      root = TestRenderer.create(React.createElement(Probe));
-    });
-    expect(latest).toBe(1);
-    act(() => root.unmount());
-
-    // A publish between the render read and the attach: the attach re-reads once.
-    calls = 0;
-    const Late = () => {
-      React.useLayoutEffect(() => {
-        getCommitBus().publishAll();
-      }, []);
-      return null;
-    };
-    act(() => {
-      root = TestRenderer.create(React.createElement(React.Fragment, null, React.createElement(Probe), React.createElement(Late)));
-    });
-    expect(latest).toBe(2);
-    act(() => root.unmount());
-  });
-
-  it('accepts a scope dependency in the shared live-read signature', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const Probe = () => {
-      useLiveRead(() => 1, [{ kind: 'scope', model: 'RuntimeScopeRows', scopeKey: 'scope-1' }]);
-      return null;
-    };
-    let root!: TestRenderer.ReactTestRenderer;
-
-    act(() => {
-      root = TestRenderer.create(React.createElement(Probe));
-    });
-    expect(root.toJSON()).toBeNull();
-    act(() => root.unmount());
-  });
-
-  it('compares row arrays shallowly and applies bounded model read ordering', () => {
-    const shared = { id: 'nested' };
-    expect(rowsShallowEqual({ values: [shared], label: 'x' }, { values: [shared], label: 'x' })).toBe(true);
-    expect(rowsShallowEqual({ values: [shared] }, { values: [{ id: 'nested' }] })).toBe(false);
-    expect(rowsShallowEqual({ label: 'x' }, { label: 'y', extra: true })).toBe(false);
-    expect(limitRows([1, 2], undefined)).toEqual([1, 2]);
-    expect(limitRows([1, 2], -1)).toEqual([]);
-    expect(
-      sortModelReadRows(
-        [
-          { id: 'b', rank: 2 },
-          { id: 'a', rank: 1 }
-        ],
-        [{ field: 'rank', direction: 'asc' }],
-        1
-      )
-    ).toEqual([{ id: 'a', rank: 1 }]);
-  });
-
-  it('reports an absent maintenance owner as unprotected', () => {
-    expect(isTempRowProtectedByModel('MissingMaintenanceModel', 'tmp:1')).toBe(false);
-  });
-
-  it('derives scope fields from the final row even when a stale stored copy exists', () => {
-    const fields = {
-      source: f.str(),
-      derived: f.custom<string, { source?: string }>(input => input.source)
-    };
-    const scopeKeys = createModelScopeKeys(
-      { name: 'SpecRuntimeEdgeScopeKeys', fields },
-      new Map([['byDerived', { value: 'derived' }]])
-    );
-
-    expect(scopeKeys.scopeValueFromRow({ value: 'derived' }, { source: 'value' })).toEqual({ value: 'value' });
-    // The stored copy of a derived field never drives attach/detach: a policy-restored source
-    // must win over a stale derived value persisted before the restore.
-    expect(scopeKeys.scopeValueFromRow({ value: 'derived' }, { source: 'source', derived: 'stored' })).toEqual({ value: 'source' });
-  });
-
-  it('normalizes nested logical criteria and unknown fields', () => {
-    const criteria = createModelCriteria<{ id: string; count: number; raw: string }>({ id: f.id(), count: f.num() });
-    const row = { id: '7', count: 2, raw: 'value' };
-
-    expect(criteria.matches(row, { and: [null as never, { id: 7 as never }, { raw: 'value' }] } as never)).toBe(true);
-    expect(criteria.matches(row, { count: { in: [2] } } as never)).toBe(true);
-    expect(criteria.matches(row, null as never)).toBe(true);
-  });
-
-  it('contains reader refetch failures, respects cancellation, and clears readers on reset', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const refetch = jest.fn(async () => {
-      throw new Error('refetch failed');
-    });
-    const release = registerActiveFetchReaders({
-      queryKey: ['runtime-edge', 'reader'],
-      markResumeStale: () => true,
-      refetch
-    });
-
-    refetchActiveFetchReaders(['runtime-edge', 'reader']);
-    await Promise.resolve();
-    expect(refetch).toHaveBeenCalledTimes(1);
-    expect(await resumeFetchReaders(1, () => false)).toBe(0);
-    expect(await resumeFetchReaders(1, () => true)).toBe(1);
-
-    resetRuntime();
-    refetchActiveFetchReaders(['runtime-edge', 'reader']);
-    await Promise.resolve();
-    expect(refetch).toHaveBeenCalledTimes(2);
-    release();
-  });
-
-  it('contains a rejected loss-driven refetch', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const queryKey = ['runtime-edge', 'loss'];
-    getDbQueryClient().setQueryData(queryKey, {
-      ids: [compositeKey('Rows', 'row-1')],
-      cursor: null,
-      pages: 1,
-      hasNextPage: false,
-      resultKind: 'one'
-    });
-    const refetch = jest.fn(async () => {
-      throw new Error('loss refetch failed');
-    });
-    const release = registerActiveFetchReaders({ queryKey, markResumeStale: () => false, refetch });
-    // Materialization loss is judged per registered chain: an unregistered cache entry that merely
-    // looks like a chain is never pruned, so the reader is reached through its own registration.
-    const releaseChain = registerMaterializationReconciler({
-      modelId: 'Rows',
-      chains: () => [{ queryKey, scopeKey: null, materialized: () => new Set<string>(), persistMaterialization: jest.fn() }]
-    });
-
+    // No public write API exists before configureDb, so the pre-configuration loss can only be
+    // produced on the bus itself; the paired flow below proves the same batch shape works after.
     getCommitBus().publish({
-      rows: [{ model: 'Rows', id: 'row-1', fields: null, kind: 'destroy' }],
+      rows: [{ model: 'SpecRuntimeEdgeRowsPreConfigure', id: 'row-1', fields: null, kind: 'destroy' }],
       scopes: [],
       pending: [],
       scopeChanges: []
     });
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(refetch).toHaveBeenCalledTimes(1);
-    releaseChain();
-    release();
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', bucket: 'a', label: 'first' }] } as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createBucketRows('PostConfigure');
+    const query = createModelQuery(rows, 'runtime-edge-post-configure');
+    const reader = renderCountedInProvider(() => query.use('a'));
+    await settle();
+    await settle(1, { macro: true });
+    expect(transport.calls.map(call => (call.operation as { variables: QueryScope }).variables)).toEqual([{ scope: 'a' }]);
+    expect(query.read('a')).toEqual([{ id: 'row-1', bucket: 'a', label: 'first' }]);
+
+    act(() => {
+      rows.destroy('row-1');
+    });
+    await settle();
+    await settle(1, { macro: true });
+    expect(transport.calls.map(call => (call.operation as { variables: QueryScope }).variables)).toEqual([{ scope: 'a' }, { scope: 'a' }]);
+    reader.unmount();
   });
 });
 
-describe('merged scope rows memo', () => {
-  it('returns the previous result for identical input identities', () => {
-    const base = [{ id: 'row-1' }];
-    const extras = [{ id: 'row-2' }];
-    let latest: ReadonlyArray<{ id: string }> = [];
+describe('reader identity across commits', () => {
+  it('keeps criteria reader identity through a non-matching commit and emits matches in one wave', () => {
+    setupSpecRuntime();
+    const rows = createBucketRows('Identity');
+    rows.insert({ id: 'row-1', bucket: 'a', label: 'first' });
+    const reader = renderCounted(() => rows.use.where({ bucket: 'a' }).orderBy('label').rows());
+    expect(reader.result().map(row => row.id)).toEqual(['row-1']);
+    const stable = reader.result();
+    const before = reader.renders();
+
+    act(() => {
+      rows.insert({ id: 'row-2', bucket: 'b', label: 'outside' });
+    });
+    expect(reader.renders() - before).toBe(0);
+    expect(reader.result()).toBe(stable);
+
+    act(() => {
+      rows.insert({ id: 'row-3', bucket: 'a', label: 'second' });
+    });
+    expect(reader.renders() - before).toBe(1);
+    expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-3']);
+    reader.unmount();
+  });
+});
+
+describe('relation declaration memoization', () => {
+  type AuthorRow = { id: string; name: string };
+
+  it('resolves the relations factory once across repeated related reads', () => {
+    setupSpecRuntime();
+    let factoryCalls = 0;
+    const authors = defineModelRuntime({
+      id: 'SpecRuntimeEdgeRelAuthors',
+      name: 'SpecRuntimeEdgeRelAuthors',
+      fields: { name: f.str() }
+    });
+    const posts = defineModelRuntime({
+      id: 'SpecRuntimeEdgeRelPosts',
+      name: 'SpecRuntimeEdgeRelPosts',
+      fields: { authorId: f.str(), title: f.str() },
+      relations: () => {
+        factoryCalls += 1;
+        return { author: belongsTo(authors, { foreignKey: 'authorId' }) };
+      }
+    });
+    authors.insert({ id: 'u-1', name: 'Ann' });
+    posts.insertMany([
+      { id: 'p-1', authorId: 'u-1', title: 'first' },
+      { id: 'p-2', authorId: 'u-1', title: 'second' }
+    ]);
+    const first = renderCounted(() => posts.use.related('p-1', 'author') as AuthorRow | undefined);
+    const second = renderCounted(() => posts.use.related('p-2', 'author') as AuthorRow | undefined);
+    expect(first.result()?.name).toBe('Ann');
+    expect(second.result()?.name).toBe('Ann');
+
+    act(() => {
+      authors.update('u-1', { name: 'Ann Updated' });
+    });
+    expect(first.result()?.name).toBe('Ann Updated');
+    expect(second.result()?.name).toBe('Ann Updated');
+    expect(factoryCalls).toBe(1);
+    first.unmount();
+    second.unmount();
+  });
+});
+
+describe('causal admission of stale responses', () => {
+  type FetchRow = { id: string; changed: string; untouched: string };
+  type FetchResponse = { row: FetchRow };
+  const singleDocument: TypedDocumentNode<FetchResponse, { request: string }> = { kind: Kind.DOCUMENT, definitions: [] };
+  const FetchSchema = defineShape<FetchRow>()({ changed: f.str(), untouched: f.str() });
+
+  const createFetchFixture = (suffix: string) => {
+    const deferred = new Map<string, (response: FetchResponse) => void>();
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) =>
+        await new Promise<{ data: TData }>(resolve => {
+          deferred.set((operation.variables as { request: string }).request, response => resolve({ data: response as TData }));
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = defineModel(`SpecRuntimeEdgeCausal${suffix}`, {
+      schema: FetchSchema,
+      relations: owner => ({
+        remote: {
+          remote: owner.gql.single(singleDocument, { variables: (params: { request: string }) => params, select: data => data.row })
+        }
+      })
+    });
+    rows.insert({ id: 'row-1', changed: 'base', untouched: 'base' });
+    const start = (name: string): Promise<void> => rows.remote({ request: name }).fetch();
+    const resolve = async (name: string, row: FetchRow, pending: Promise<void>): Promise<void> => {
+      await act(async () => {
+        deferred.get(name)!({ row });
+        await pending;
+      });
+    };
+    return { rows, start, resolve };
+  };
+
+  it('lands an uncontested response and keeps a row destroyed mid-flight absent', async () => {
+    const fixture = createFetchFixture('DestroyRace');
+    const clean = fixture.start('clean');
+    await fixture.resolve('clean', { id: 'row-1', changed: 'clean', untouched: 'clean' }, clean);
+    expect(fixture.rows.find('row-1')).toEqual({ id: 'row-1', changed: 'clean', untouched: 'clean' });
+
+    const slow = fixture.start('slow');
+    act(() => {
+      fixture.rows.destroy('row-1');
+    });
+    await fixture.resolve('slow', { id: 'row-1', changed: 'stale', untouched: 'stale' }, slow);
+    expect(fixture.rows.find('row-1')).toBeUndefined();
+  });
+
+  it('keeps a row re-created mid-flight over the stale response', async () => {
+    const fixture = createFetchFixture('RecreateRace');
+    const slow = fixture.start('slow');
+
+    act(() => {
+      fixture.rows.destroy('row-1');
+      fixture.rows.insert({ id: 'row-1', changed: 'local', untouched: 'local' });
+    });
+    await fixture.resolve('slow', { id: 'row-1', changed: 'stale', untouched: 'stale' }, slow);
+
+    expect(fixture.rows.find('row-1')).toEqual({ id: 'row-1', changed: 'local', untouched: 'local' });
+  });
+
+  it('evicts locally-updated fields from a stale response while accepting its untouched fields', async () => {
+    const fixture = createFetchFixture('FieldRace');
+    const slow = fixture.start('slow');
+
+    act(() => {
+      fixture.rows.update('row-1', { changed: 'local' });
+    });
+    await fixture.resolve('slow', { id: 'row-1', changed: 'remote', untouched: 'accepted' }, slow);
+
+    expect(fixture.rows.find('row-1')).toEqual({ id: 'row-1', changed: 'local', untouched: 'accepted' });
+  });
+});
+
+describe('causal admission of write-plan landings', () => {
+  type Target = { id: string; alpha: string; beta: string };
+  type ActionData = { rootAction: { root: { id: string; label: string } } };
+  type ActionVariables = { input: { value: string } };
+  const actionDocument: TypedDocumentNode<ActionData, ActionVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+  const TargetSchema = defineShape<Target>()({ alpha: f.str(), beta: f.str() });
+  const RootSchema = defineShape<{ id: string; label: string }>()({ label: f.str() });
+
+  const createPlanFixture = (suffix: string, write: (plan: { update(model: never, id: string, patch: object): void; destroy(model: never, id: string): void }, target: never) => void) => {
+    let resolveMutation!: (value: { data: ActionData }) => void;
+    const transport = createMockTransport({
+      mutation: <TData,>() =>
+        new Promise<{ data: TData }>(resolvePromise => {
+          resolveMutation = resolvePromise as never;
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const target = defineModel(`SpecRuntimeEdgePlanTarget${suffix}`, { schema: TargetSchema });
+    const root = defineModel(`SpecRuntimeEdgePlanRoot${suffix}`, {
+      schema: RootSchema,
+      actions: owner => ({
+        apply: owner.gql.action(actionDocument, {
+          mode: 'request',
+          result: 'rootAction',
+          variables: (input: { value: string }) => ({ input }),
+          root: { insert: { select: ({ data }) => data.rootAction.root } },
+          write: (_context, plan) => write(plan as never, target as never)
+        })
+      })
+    });
+    target.insert({ id: 't-1', alpha: 'base', beta: 'base' });
+    const land = async (pending: Promise<unknown>): Promise<void> => {
+      await act(async () => {
+        resolveMutation({ data: { rootAction: { root: { id: 'root-1', label: 'landed' } } } });
+        await pending;
+      });
+    };
+    return { target, root, land };
+  };
+
+  it('drops locally-updated patch fields from a landing and applies the rest', async () => {
+    const fixture = createPlanFixture('PatchPartial', (plan, target) => plan.update(target, 't-1', { alpha: 'planned', beta: 'planned' }));
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = fixture.root.actions.apply.run({ value: 'go' });
+    });
+    act(() => {
+      fixture.target.update('t-1', { alpha: 'local' });
+    });
+    await fixture.land(pending);
+
+    expect(fixture.target.find('t-1')).toEqual({ id: 't-1', alpha: 'local', beta: 'planned' });
+  });
+
+  it('drops a fully-contested patch and leaves the local row intact', async () => {
+    const fixture = createPlanFixture('PatchFull', (plan, target) => plan.update(target, 't-1', { alpha: 'planned', beta: 'planned' }));
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = fixture.root.actions.apply.run({ value: 'go' });
+    });
+    act(() => {
+      fixture.target.update('t-1', { alpha: 'local', beta: 'local' });
+    });
+    await fixture.land(pending);
+
+    expect(fixture.target.find('t-1')).toEqual({ id: 't-1', alpha: 'local', beta: 'local' });
+  });
+
+  it('drops a planned destroy for a row changed mid-flight and lands it uncontested', async () => {
+    const fixture = createPlanFixture('Destroy', (plan, target) => plan.destroy(target, 't-1'));
+    let contested!: Promise<unknown>;
+    act(() => {
+      contested = fixture.root.actions.apply.run({ value: 'first' });
+    });
+    act(() => {
+      fixture.target.update('t-1', { alpha: 'local' });
+    });
+    await fixture.land(contested);
+    expect(fixture.target.find('t-1')).toEqual({ id: 't-1', alpha: 'local', beta: 'base' });
+
+    let uncontested!: Promise<unknown>;
+    act(() => {
+      uncontested = fixture.root.actions.apply.run({ value: 'second' });
+    });
+    await fixture.land(uncontested);
+    expect(fixture.target.find('t-1')).toBeUndefined();
+  });
+
+  it('rejects revision notes outside an active apply', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    // The apply runtime brackets every commit with beginApply/commitApply, so no public write can
+    // note a revision outside an apply or open a second apply; the guards are only reachable here.
+    const context = createModelContext<{ id: string }>({
+      modelId: 'SpecRuntimeEdgeRevisionGuards',
+      scopeNames: [],
+      relations: () => ({}),
+      applyWriteGate: (_previous, incoming) => incoming
+    });
+    expect(() => context.revisions.notePut('row-1', ['changed'], false)).toThrow('SpecRuntimeEdgeRevisionGuards: revision apply is not active');
+    expect(() => context.revisions.noteDestroy('row-1')).toThrow('SpecRuntimeEdgeRevisionGuards: revision apply is not active');
+    expect(() => context.revisions.commitApply()).toThrow('SpecRuntimeEdgeRevisionGuards: revision apply is not active');
+    context.revisions.beginApply(2);
+    expect(() => context.revisions.beginApply(3)).toThrow('SpecRuntimeEdgeRevisionGuards: revision apply already active');
+    context.revisions.abortApply();
+  });
+});
+
+describe('error loading classification', () => {
+  it('classifies a failed first fetch as error and a landed fetch as ready', async () => {
+    let mode: 'fail' | 'serve' = 'fail';
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        if (mode === 'fail') throw new Error('offline');
+        return { data: { rows: [{ id: 'row-1', bucket: 'a', label: 'first' }] } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createBucketRows('LoadingPhase');
+    const query = createModelQuery(rows, 'runtime-edge-loading-phase');
+
+    const failing = renderCountedInProvider(() => query.use('a'));
+    await settle();
+    await settle(2, { macro: true });
+    expect(failing.result().loadingState).toMatchObject({ phase: 'error', showErrorBanner: true, hasData: false, showSkeleton: false });
+    expect(failing.result().error?.message).toBe('offline');
+    failing.unmount();
+
+    mode = 'serve';
+    const serving = renderCountedInProvider(() => query.use('b'));
+    await settle();
+    await settle(2, { macro: true });
+    expect(serving.result().loadingState).toMatchObject({ phase: 'ready', hasData: true, showErrorBanner: false });
+    expect((serving.result().data as unknown as Row[]).map(row => row.id)).toEqual(['row-1']);
+    serving.unmount();
+  });
+});
+
+describe('projected row reuse', () => {
+  it('re-renders a render-key reader only when a tracked field changes', () => {
+    setupSpecRuntime();
+    const rows = createBucketRows('RenderKeys');
+    rows.insert({ id: 'row-1', bucket: 'a', label: 'first' });
+    const reader = renderCounted(() => rows.use.find('row-1', { renderKeys: ['label'] }));
+    const identity = reader.result();
+    const before = reader.renders();
+
+    act(() => {
+      rows.update('row-1', { bucket: 'b' });
+    });
+    expect(reader.renders() - before).toBe(0);
+    expect(reader.result()).toBe(identity);
+
+    act(() => {
+      rows.update('row-1', { label: 'second' });
+    });
+    expect(reader.renders() - before).toBe(1);
+    expect(reader.result()).toMatchObject({ label: 'second', bucket: 'b' });
+    reader.unmount();
+  });
+
+  it('emits one wave when a full-row reader gains a field', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineModelRuntime({
+      id: 'SpecRuntimeEdgeFieldSet',
+      name: 'SpecRuntimeEdgeFieldSet',
+      fields: { label: f.str(), extra: f.str().optional() }
+    });
+    rows.insert({ id: 'row-1', label: 'first' });
+    const reader = renderCounted(() => rows.use.find('row-1'));
+    const before = reader.renders();
+
+    act(() => {
+      rows.update('row-1', { extra: 'added' });
+    });
+    expect(reader.renders() - before).toBe(1);
+    expect(reader.result()).toEqual({ id: 'row-1', label: 'first', extra: 'added' });
+    reader.unmount();
+  });
+});
+
+describe('live reads across mount-time commits', () => {
+  it('serves a row committed by a sibling while the reader was mounting', () => {
+    setupSpecRuntime();
+    const rows = createBucketRows('MountCommit');
+    let latest: Row | undefined;
+    const Reader = () => {
+      latest = rows.use.find('row-1');
+      return null;
+    };
+    const Late = () => {
+      React.useLayoutEffect(() => {
+        rows.insert({ id: 'row-1', bucket: 'a', label: 'inserted-during-mount' });
+      }, []);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(React.Fragment, null, React.createElement(Late), React.createElement(Reader)));
+    });
+
+    expect(latest).toEqual({ id: 'row-1', bucket: 'a', label: 'inserted-during-mount' });
+    act(() => root.unmount());
+  });
+
+  it('tracks the pending state of a row operation from start to landing', async () => {
+    type Job = { id: string; label: string };
+    type StatusData = { jobStatus: Job };
+    const statusDocument: TypedDocumentNode<StatusData, { id: string }> = { kind: Kind.DOCUMENT, definitions: [] };
+    let resolveMutation!: (value: { data: StatusData }) => void;
+    const transport = createMockTransport({
+      mutation: <TData,>() =>
+        new Promise<{ data: TData }>(resolvePromise => {
+          resolveMutation = resolvePromise as never;
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const jobs = defineModel('SpecRuntimeEdgePending', {
+      schema: defineShape<Job>()({ label: f.str() }),
+      actions: owner => ({
+        rename: owner.gql.action(statusDocument, {
+          mode: 'request',
+          result: 'jobStatus',
+          variables: (input: { id: string; label: string }) => ({ id: input.id }),
+          optimistic: { root: { update: { select: ({ input }) => ({ id: input.id, patch: { label: input.label } }) } } },
+          root: { update: { select: ({ data }) => ({ id: data.jobStatus.id, patch: { label: data.jobStatus.label } }) } }
+        })
+      })
+    });
+    jobs.insert({ id: 'job-1', label: 'original' });
+    const reader = renderCounted(() => jobs.operation('job-1').use().pending);
+    expect(reader.result()).toBe(false);
+
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = jobs.actions.rename.run({ id: 'job-1', label: 'renamed' });
+    });
+    expect(reader.result()).toBe(true);
+
+    await act(async () => {
+      resolveMutation({ data: { jobStatus: { id: 'job-1', label: 'renamed' } } });
+      await pending;
+    });
+    expect(reader.result()).toBe(false);
+    expect(jobs.find('job-1')).toEqual({ id: 'job-1', label: 'renamed' });
+    reader.unmount();
+  });
+});
+
+describe('scope reader dependencies', () => {
+  it('recomputes a scope reader for its own scope key only', () => {
+    setupSpecRuntime();
+    const rows = createBucketRows('ScopeDep');
+    const reader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'a' }));
+    expect(reader.result()).toEqual([]);
+    const before = reader.renders();
+
+    act(() => {
+      rows.insert({ id: 'row-b', bucket: 'b', label: 'other' });
+    });
+    expect(reader.renders() - before).toBe(0);
+    expect(reader.result()).toEqual([]);
+
+    act(() => {
+      rows.insert({ id: 'row-a', bucket: 'a', label: 'mine' });
+    });
+    expect(reader.renders() - before).toBe(1);
+    expect(reader.result().map(row => row.id)).toEqual(['row-a']);
+    reader.unmount();
+  });
+});
+
+describe('bounded model read ordering', () => {
+  it('orders and bounds imperative where reads by the declared keys', () => {
+    setupSpecRuntime();
+    const rows = createBucketRows('Ordering');
+    rows.insertMany([
+      { id: 'row-b', bucket: 'a', label: 'beta' },
+      { id: 'row-a', bucket: 'a', label: 'alpha' },
+      { id: 'row-c', bucket: 'a', label: 'gamma' }
+    ]);
+
+    expect(rows.where({ bucket: 'a' }, { orderBy: { field: 'label', direction: 'asc' } }).map(row => row.id)).toEqual(['row-a', 'row-b', 'row-c']);
+    expect(rows.where({ bucket: 'a' }, { orderBy: { field: 'label', direction: 'desc' }, limit: 1 }).map(row => row.id)).toEqual(['row-c']);
+    expect(rows.where({ bucket: 'a' }, { orderBy: { field: 'label', direction: 'asc' }, limit: -1 })).toEqual([]);
+    expect(rows.where({ bucket: 'a' }).map(row => row.id).sort()).toEqual(['row-a', 'row-b', 'row-c']);
+  });
+});
+
+describe('temp row protection at boot', () => {
+  it('quarantines an ownerless temp row at boot and keeps a model-protected one', async () => {
+    const storage = createMemoryPlane();
+    storage.set(compositeStorageKey('dbl:', 'row', 'SpecRuntimeEdgeTempUnprotected', 'temp-orphan'), encodePersistence({ id: 'temp-orphan', label: 'orphan' }));
+    storage.set(compositeStorageKey('dbl:', 'row', 'SpecRuntimeEdgeTempGuarded', 'temp-keep'), encodePersistence({ id: 'temp-keep', label: 'kept' }));
+    configureDb({ storage, transport: createMockTransport() });
+    const unprotected = defineModelRuntime({
+      id: 'SpecRuntimeEdgeTempUnprotected',
+      name: 'SpecRuntimeEdgeTempUnprotected',
+      fields: { label: f.str() }
+    });
+    const guarded = defineModelRuntime({
+      id: 'SpecRuntimeEdgeTempGuarded',
+      name: 'SpecRuntimeEdgeTempGuarded',
+      fields: { label: f.str() },
+      maintenance: { dropTempRowsAfterMs: 60_000, protectTempRows: () => new Set(['temp-keep']) }
+    });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+
+    await bootDb();
+
+    expect(unprotected.find('temp-orphan')).toBeUndefined();
+    expect(guarded.find('temp-keep')).toEqual({ id: 'temp-keep', label: 'kept' });
+  });
+});
+
+describe('derived scope membership', () => {
+  it('attaches membership by the derived value of the final row, not the stored copy', () => {
+    setupSpecRuntime();
+    const rows = defineModelRuntime({
+      id: 'SpecRuntimeEdgeDerivedScope',
+      name: 'SpecRuntimeEdgeDerivedScope',
+      fields: {
+        source: f.str(),
+        derived: f.custom<string, { source?: string }>(input => input.source ?? '')
+      },
+      scopes: { byDerived: { by: { value: 'derived' } } },
+      write: { groups: [{ fields: ['source'] as const, policy: 'local' as const }] }
+    });
+    rows.insert({ id: 'row-1', source: 'source' } as never);
+    expect(rows.scopes.byDerived.read({ value: 'source' }).map(row => row.id)).toEqual(['row-1']);
+
+    // The local policy restores source, leaving a stale derived copy in the stored row; the
+    // membership must follow the restored source, not the stale stored derived value.
+    rows.insert({ id: 'row-1', source: 'incoming' } as never);
+    expect(rows.find('row-1')).toMatchObject({ source: 'source' });
+    expect(rows.scopes.byDerived.read({ value: 'source' }).map(row => row.id)).toEqual(['row-1']);
+    expect(rows.scopes.byDerived.read({ value: 'incoming' })).toEqual([]);
+
+    // A patch is the local-policy write path: membership follows the moved source.
+    rows.update('row-1', { source: 'moved' } as never);
+    expect(rows.scopes.byDerived.read({ value: 'moved' }).map(row => row.id)).toEqual(['row-1']);
+    expect(rows.scopes.byDerived.read({ value: 'source' })).toEqual([]);
+  });
+});
+
+describe('criteria normalization', () => {
+  it('coerces operand types inside nested logical criteria', () => {
+    setupSpecRuntime();
+    const rows = defineModelRuntime({
+      id: 'SpecRuntimeEdgeCriteria',
+      name: 'SpecRuntimeEdgeCriteria',
+      fields: { count: f.num(), raw: f.str() }
+    });
+    rows.insertMany([
+      { id: '7', count: 2, raw: 'value' },
+      { id: '8', count: 3, raw: 'other' }
+    ]);
+
+    const nested = renderCounted(() => rows.use.where({ and: [null as never, { id: 7 as never }, { raw: 'value' }] } as never).rows());
+    expect(nested.result().map(row => row.id)).toEqual(['7']);
+    nested.unmount();
+
+    const membership = renderCounted(() => rows.use.where({ count: { in: [2] } } as never).rows());
+    expect(membership.result().map(row => row.id)).toEqual(['7']);
+    membership.unmount();
+
+    expect(rows.where(null as never).map(row => row.id).sort()).toEqual(['7', '8']);
+  });
+});
+
+describe('loss-driven refetch of active readers', () => {
+  const createLossFixture = (suffix: string, key: string, options: { failRefetch?: boolean } = {}) => {
+    const served = new Map<string, number>();
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) => {
+        const scope = (operation.variables as QueryScope).scope;
+        const call = (served.get(scope) ?? 0) + 1;
+        served.set(scope, call);
+        if (options.failRefetch && call > 1) throw new Error('refetch failed');
+        return { data: { rows: [{ id: `row-${scope}-${call}`, bucket: scope, label: scope }] } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createBucketRows(suffix);
+    const query = createModelQuery(rows, key);
+    const variablesSeen = () => transport.calls.map(call => (call.operation as { variables: QueryScope }).variables);
+    return { transport, rows, query, variablesSeen };
+  };
+
+  it('refetches only the readers of the destroyed chain', async () => {
+    const fixture = createLossFixture('LossTargets', 'runtime-edge-loss-targets');
+    const readers = renderCountedInProvider(() => ({ a: fixture.query.use('a'), b: fixture.query.use('b') }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(fixture.variablesSeen()).toEqual([{ scope: 'a' }, { scope: 'b' }]);
+    expect(fixture.query.read('a')).toEqual([{ id: 'row-a-1', bucket: 'a', label: 'a' }]);
+
+    act(() => {
+      fixture.rows.destroy('row-a-1');
+    });
+    await settle();
+    await settle(1, { macro: true });
+
+    expect(fixture.variablesSeen()).toEqual([{ scope: 'a' }, { scope: 'b' }, { scope: 'a' }]);
+    expect(fixture.query.read('a')).toEqual([{ id: 'row-a-2', bucket: 'a', label: 'a' }]);
+    expect(fixture.query.read('b')).toEqual([{ id: 'row-b-1', bucket: 'b', label: 'b' }]);
+    readers.unmount();
+  });
+
+  it('contains a rejected loss-driven refetch and keeps serving the survivors', async () => {
+    const fixture = createLossFixture('LossRejected', 'runtime-edge-loss-rejected', { failRefetch: true });
+    const reader = renderCountedInProvider(() => fixture.query.use('a'));
+    await settle();
+    await settle(1, { macro: true });
+    expect(fixture.query.read('a')).toEqual([{ id: 'row-a-1', bucket: 'a', label: 'a' }]);
+
+    act(() => {
+      fixture.rows.destroy('row-a-1');
+    });
+    await settle();
+    await settle(2, { macro: true });
+
+    expect(fixture.variablesSeen()).toEqual([{ scope: 'a' }, { scope: 'a' }]);
+    expect(fixture.query.read('a')).toEqual([]);
+    act(() => {
+      fixture.rows.insert({ id: 'row-after', bucket: 'a', label: 'still-works' });
+    });
+    expect(fixture.rows.find('row-after')).toEqual({ id: 'row-after', bucket: 'a', label: 'still-works' });
+    reader.unmount();
+  });
+});
+
+describe('foreground resume of active readers', () => {
+  it('resumes only lapsed readers, honors cancellation, and releases unmounted readers', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) => {
+        const scope = (operation.variables as QueryScope).scope;
+        return { data: { rows: [{ id: `row-${scope}`, bucket: scope, label: scope }] } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createBucketRows('Resume');
+    const lapsed = createModelQuery(rows, 'runtime-edge-resume-lapsed', { resumeStaleTime: 0 });
+    const fresh = createModelQuery(rows, 'runtime-edge-resume-fresh', { resumeStaleTime: 3_600_000 });
+    const variablesSeen = () => transport.calls.map(call => (call.operation as { variables: QueryScope }).variables);
+    const readers = renderCountedInProvider(() => ({ a: lapsed.use('a'), b: fresh.use('b') }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(variablesSeen()).toEqual([{ scope: 'a' }, { scope: 'b' }]);
+
+    // A resume superseded before its first chunk refetches nobody.
+    expect(await resumeFetchReaders(1, () => false)).toBe(0);
+    await settle();
+    expect(variablesSeen()).toEqual([{ scope: 'a' }, { scope: 'b' }]);
+
+    // The provider-driven resume refetches the lapsed reader only.
+    let resumed!: number;
+    await act(async () => {
+      resumed = await resumeFetchReaders(1, () => true);
+    });
+    await settle();
+    await settle(1, { macro: true });
+    expect(resumed).toBe(1);
+    expect(variablesSeen()).toEqual([{ scope: 'a' }, { scope: 'b' }, { scope: 'a' }]);
+
+    // Unmounted readers leave the registry: the next resume reaches nobody.
+    readers.unmount();
+    expect(await resumeFetchReaders(1, () => true)).toBe(0);
+    await settle();
+    expect(variablesSeen()).toEqual([{ scope: 'a' }, { scope: 'b' }, { scope: 'a' }]);
+  });
+});
+
+describe('merged scope rows', () => {
+  it('merges two scope reads with deduplication, comparator order, and stable identity', () => {
+    setupSpecRuntime();
+    const rows = createBucketRows('Merged');
+    rows.insertMany([
+      { id: 'row-2', bucket: 'a', label: 'b-label' },
+      { id: 'row-1', bucket: 'b', label: 'a-label' },
+      { id: 'row-2', bucket: 'a', label: 'b-label' }
+    ]);
+    const comparator = (left: Row, right: Row) => (left.label < right.label ? -1 : left.label > right.label ? 1 : 0);
+    let latest: ReadonlyArray<Row> = [];
     const Probe = (_props: { tick: number }) => {
-      latest = useMergedScopeRows(base, extras);
+      const base = rows.scopes.byBucket.use({ bucket: 'a' });
+      const extras = rows.scopes.byBucket.use({ bucket: 'b' });
+      latest = useMergedScopeRows(base, [...extras, ...base], { comparator });
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = TestRenderer.create(React.createElement(Probe, { tick: 0 }));
     });
+    expect(latest.map(row => row.id)).toEqual(['row-1', 'row-2']);
     const first = latest;
+
     act(() => root.update(React.createElement(Probe, { tick: 1 })));
     expect(latest).toBe(first);
-    act(() => root.unmount());
-  });
+    expect(latest.map(row => row.id)).toEqual(['row-1', 'row-2']);
 
-  it('deduplicates extras, sorts with a comparator, and reuses equivalent output', () => {
-    const rowA = { id: 'a', rank: 1 };
-    const rowB = { id: 'b', rank: 2 };
-    let base = [rowB];
-    let extras = [
-      rowB,
-      rowA
-    ];
-    const comparator = (left: { rank: number }, right: { rank: number }) => left.rank - right.rank;
-    let latest: ReadonlyArray<{ id: string; rank: number }> = [];
-    const Probe = () => {
-      latest = useMergedScopeRows(base, extras, { comparator });
-      return null;
-    };
-    let root!: TestRenderer.ReactTestRenderer;
     act(() => {
-      root = TestRenderer.create(React.createElement(Probe));
+      rows.insert({ id: 'row-3', bucket: 'a', label: '0-label' });
     });
-    expect(latest.map(row => row.id)).toEqual(['a', 'b']);
-    const first = latest;
-    base = [rowB];
-    extras = [rowA];
-    act(() => root.update(React.createElement(Probe)));
-    expect(latest).toBe(first);
-    extras = [];
-    act(() => root.update(React.createElement(Probe)));
-    expect(latest.map(row => row.id)).toEqual(['b']);
+    expect(latest.map(row => row.id)).toEqual(['row-3', 'row-1', 'row-2']);
     act(() => root.unmount());
   });
 });

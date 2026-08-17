@@ -62,25 +62,24 @@ const engineOrder = (orders: ReadonlyArray<{ field: string; direction: 'asc' | '
 const comparatorOrder = (orders: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>): string[] =>
   [...ROWS].sort(createFieldOrderComparator(orders)).map(row => row.id);
 
+/** Every case names the exact sequence (spec 05): NaN is the greatest value of its field, null is last regardless of direction, ties settle by id, strings by codepoint. */
+const CASES: Array<[string, ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, string[]]> = [
+  ['a single ascending numeric key with NaN after every number and null last', [{ field: 'rank', direction: 'asc' }], ['e', 'b', 'a', 'd', 'f', 'c']],
+  ['a single descending numeric key brings NaN first and keeps null last', [{ field: 'rank', direction: 'desc' }], ['f', 'a', 'd', 'b', 'e', 'c']],
+  ['a string key by codepoint with the empty string first and null last', [{ field: 'label', direction: 'asc' }], ['e', 'd', 'b', 'a', 'f', 'c']],
+  [
+    'two keys with the second key ordering the ties and the id settling the rest',
+    [
+      { field: 'rank', direction: 'asc' },
+      { field: 'label', direction: 'desc' }
+    ],
+    ['e', 'b', 'a', 'd', 'f', 'c']
+  ]
+];
+
 describe('order expression compilation', () => {
-  it('agrees on a single ascending numeric key', () => {
-    expect(engineOrder([{ field: 'rank', direction: 'asc' }])).toEqual(comparatorOrder([{ field: 'rank', direction: 'asc' }]));
-  });
-
-  it('agrees on a single descending numeric key', () => {
-    expect(engineOrder([{ field: 'rank', direction: 'desc' }])).toEqual(comparatorOrder([{ field: 'rank', direction: 'desc' }]));
-  });
-
-  it('agrees on a string key by codepoint', () => {
-    expect(engineOrder([{ field: 'label', direction: 'asc' }])).toEqual(comparatorOrder([{ field: 'label', direction: 'asc' }]));
-  });
-
-  it('agrees on two keys with the id tie-break settling the rest', () => {
-    const orders = [
-      { field: 'rank', direction: 'asc' as const },
-      { field: 'label', direction: 'desc' as const }
-    ];
-
-    expect(engineOrder(orders)).toEqual(comparatorOrder(orders));
+  it.each(CASES)('orders %s the same through the live query and the comparator', (_name, orders, expected) => {
+    expect(engineOrder(orders)).toEqual(expected);
+    expect(comparatorOrder(orders)).toEqual(expected);
   });
 });

@@ -19,9 +19,12 @@ describe('buildScopeKey stability', () => {
   });
 
   it('[R7] produces one key regardless of filter key order and undefined padding', () => {
-    expect(buildScopeKey({ a: 1, b: 2 })).toBe(buildScopeKey({ b: 2, a: 1 }));
-    expect(buildScopeKey({ a: 1, b: 2 })).toBe(buildScopeKey({ b: 2, a: 1, c: undefined }));
-    expect(buildScopeKey({ a: 1 })).not.toBe(buildScopeKey({ a: '1' }));
+    expect([buildScopeKey({ a: 1, b: 2 }), buildScopeKey({ b: 2, a: 1 }), buildScopeKey({ b: 2, a: 1, c: undefined })]).toEqual([
+      '{"a":1,"b":2}',
+      '{"a":1,"b":2}',
+      '{"a":1,"b":2}'
+    ]);
+    expect([buildScopeKey({ a: 1 }), buildScopeKey({ a: '1' })]).toEqual(['{"a":1}', '{"a":"1"}']);
   });
 });
 

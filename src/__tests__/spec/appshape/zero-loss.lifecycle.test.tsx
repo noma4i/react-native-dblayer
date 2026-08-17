@@ -8,6 +8,7 @@ import {
   encodePersistence,
   f,
   getApplyRuntime,
+  getOperationState,
   readQuarantineEntries,
   resetRuntime,
   writePersistenceManifest
@@ -187,29 +188,42 @@ const runScenario = async (opCount: number): Promise<{ writes: Array<{ key: stri
   }
   await Promise.resolve();
   for (const row of Message.where({ chatId: 'chat-1' }).read()) {
-    if (row.status === 'Sending') tempIds.push(row.id);
+    if (row.status === 'Sending') {
+      tempIds.push(row.id);
+      draftBodies.set(row.id, row.body);
+    }
   }
   // The app-shaped end of the scenario: backgrounding lands the coalesced cache snapshots.
   getApplyRuntime().flushCacheSnapshots();
   return { writes: storage.setCalls(), tempIds, serverIds };
 };
 
+/** The draft body each unsent row carried when it was written: the value every survival form must still name. */
+const draftBodies = new Map<string, string>();
+
 /**
- * The invariant at one restarted disk: an unsent user row is never silently gone. It survives as a
- * retryable operation (its domain input rides the ledger), as a live row, or as a quarantine
- * ticket - one of the three, always.
+ * The invariant at one restarted disk: an unsent user row is never silently gone, and "survives"
+ * names a value, not a presence. Either the row is retryable - an open (pending or failed) operation
+ * whose ledger input still carries the draft body AND the live row shows that body - or the row sits
+ * in quarantine as a ticket whose raw payload carries the body. A row without its operation, an
+ * operation without its input, or a ticket without the body are all loss.
  */
 const assertUserRowsSurvive = (tempIds: string[]): void => {
-  const quarantined = new Set(readQuarantineEntries().map(entry => entry.id));
+  const state = getOperationState();
   for (const tempId of tempIds) {
-    const row = Message.find(tempId);
-    const operation = Message.operation(tempId).read();
-    const survives = operation.pending || operation.failed || row !== undefined || quarantined.has(tempId);
-    if (!survives) {
-      throw new Error(
-        `user row lost: id=${tempId} row=${row === undefined ? 'GONE' : 'present'} pending=${operation.pending} failed=${operation.failed} quarantined=false`
-      );
+    const body = draftBodies.get(tempId);
+    expect(body).toEqual(expect.any(String));
+    const ticket = readQuarantineEntries().find(entry => entry.id === tempId);
+    if (ticket !== undefined) {
+      // A row ticket carries the persisted record verbatim: its payload still names the draft body.
+      const raw = typeof ticket.raw === 'string' ? (JSON.parse(ticket.raw) as { payload: unknown }).payload : ticket.raw;
+      expect({ model: ticket.model, kind: ticket.kind, payload: raw }).toEqual({ model: 'ZeroLossMessage', kind: 'row', payload: expect.objectContaining({ id: tempId, body }) });
+      continue;
     }
+    const open = [...state.pendingForRow('ZeroLossMessage', tempId), ...state.failedForRow('ZeroLossMessage', tempId)];
+    expect({ tempId, openOperations: open.length }).toEqual({ tempId, openOperations: 1 });
+    expect(open[0]!.input).toEqual(expect.objectContaining({ row: expect.objectContaining({ body }) }));
+    expect(Message.find(tempId)).toEqual(expect.objectContaining({ id: tempId, body, status: 'Sending' }));
   }
 };
 
@@ -234,9 +248,12 @@ describe('zero-loss lifecycle', () => {
     expect(tempIds).toHaveLength(2);
     resetRuntime();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'user-reset-discard', model: '__operations__', count: 2 });
+    // Loud AND gone: the ledger holds no open operation and no row survives for either draft.
+    expect(getOperationState().open()).toEqual([]);
+    expect(tempIds.map(tempId => Message.find(tempId))).toEqual([undefined, undefined]);
   });
 
-  it('[I4] keeps unsent user rows retryable after a kill at EVERY persisted write point', async () => {
+  it('[I4] [P53] keeps unsent user rows retryable after a kill at EVERY persisted write point', async () => {
     const random = mulberry32(1);
     const { writes, tempIds } = await runScenario(2);
     expect(tempIds.length).toBeGreaterThan(0);
@@ -407,8 +424,8 @@ describe('zero-loss lifecycle', () => {
     const disk = diskAtWrite(writes, rowWriteIndex + 1);
     await bootOn(disk);
     // Row and membership are one atomic pair: a row the disk holds is readable through its scope.
-    const memberIds = Message.thread({ chatId: 'chat-1' }).read().map(row => row.id);
-    if (Message.find('server-2') !== undefined) expect(memberIds).toContain('server-2');
+    expect(Message.find('server-2')).toEqual(expect.objectContaining({ id: 'server-2', body: 'landed-1' }));
+    expect(Message.thread({ chatId: 'chat-1' }).read().map(row => row.id)).toContain('server-2');
   });
 
   it('keeps fields landed after a mutation started when the process dies mid-mutation', async () => {
