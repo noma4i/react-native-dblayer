@@ -1,5 +1,26 @@
 # Changelog
 
+## 10.1.0-beta.6 - 2026-08-17
+
+### Changed
+
+- One reactive read primitive: every reader either reads its source or holds a value whose freshness is proven by a fact (the commit-bus `sequence()` unchanged since the read, or a re-read at attach). `useLiveRead` re-subscribes on a dependency-signature change and re-reads at attach only when a publish landed since the render read; the `setDeps` operation on `CommitSubscription` is gone (`r08-live-read-deps-gap`, R27).
+- Scope read holder owned per key: one materialization per (model, scope key, generation), refcounted with its readers, gauge `scopeReadHolders`. Five readers of one key cost the incremental work of one and render the same row objects (`r09-shared-scope-holder`, R28). Readers that render before the holder exists share one pre-attach seed per key so the holder adopts their row identities.
+- Membership projection follows the op order of one envelope: `IncrementalScopeChange` carries ordered `steps` (`{ entries }` or `{ upserts, detachIds }`) and the store projects each step against a batch-local view (`i-apply-batch` W45).
+- `defineQuery` registers one scope object per bucket key: a mounted query reader that renders again without a new landing does no query-record write and no reader registration (`r10-query-reader-render-budget`, F59).
+- `configureDb` under a mounted reader publishes to every reader like `resetRuntime` does (`i-reboot-reader`, R22).
+- `createDerivedCollectionCache(gauge)` names its residency gauge; `derivedCollections` counts scope and model-query collections, `scopeReadHolders` counts holders.
+
+### Fixed
+
+- `fetchNextPage` from a render snapshot that predates the last landing (live chain without a cursor) is a no-op instead of a first-page landing that collapsed the chain and re-anchored the scope order (`c-page-direction` F58).
+- `useObservedQuery` snapshot includes the query `dataUpdateCount`: two landings within one millisecond are distinct frames.
+
+### Added
+
+- `causalAdmissionDropEvents`: bounded (100) record of every causal admission eviction with model, id, kind (`existence` / `row` / `fields`) and the evicted field names (W41).
+- Silent-drop gate scans `return []` / `return EMPTY_*` points.
+
 ## 10.1.0-beta.5 - 2026-08-17
 
 ### Fixed
