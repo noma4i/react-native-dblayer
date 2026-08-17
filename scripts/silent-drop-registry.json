@@ -1,36 +1,6 @@
 {
   "entries": [
     {
-      "key": "src/core/apply/applyExecution.ts|return;|1",
-      "file": "src/core/apply/applyExecution.ts",
-      "line": 23,
-      "drops": "nothing",
-      "condition": "a full scope snapshot op follows accumulated delta notes for the same scope in one batch",
-      "verdict": "NONDROP",
-      "ref": "prior upsert/detach change-notes are superseded by the authoritative full entry set of the same scope; store state already applied both",
-      "note": "coalescing of batch.scopeChanges metadata, not of stored membership"
-    },
-    {
-      "key": "src/core/apply/applyExecution.ts|uniqBy([...right, ...(left ?? [])], entry => entry.id);|1",
-      "file": "src/core/apply/applyExecution.ts",
-      "line": 26,
-      "drops": "nothing",
-      "condition": "two scope-delta ops in one batch upsert the same entry id",
-      "verdict": "NONDROP",
-      "ref": "uniqBy keeps the newer op's entry (right first), matching store state where the later scopeDelta overwrote the orderKey",
-      "note": "last-write-wins coalescing of change notes; no membership discarded"
-    },
-    {
-      "key": "src/core/apply/applyExecution.ts|detachIds: uniq([...(current.detachIds ?? []), ...change.detachIds])|1",
-      "file": "src/core/apply/applyExecution.ts",
-      "line": 31,
-      "drops": "nothing",
-      "condition": "same detach id noted twice in one batch",
-      "verdict": "NONDROP",
-      "ref": "dedup of identical detach ids; a detach is idempotent",
-      "note": "pure set union of change notes"
-    },
-    {
       "key": "src/core/apply/applyExecution.ts|for (const scopeKey of target.reactiveScopes?.(ids) ?? []) {|1",
       "file": "src/core/apply/applyExecution.ts",
       "line": 35,
@@ -69,26 +39,6 @@
       "verdict": "NONDROP",
       "ref": "subscription bookkeeping over an absent Set; nothing to remove",
       "note": "control flow over non-data"
-    },
-    {
-      "key": "src/core/apply/commitBus.ts|removeFromModelBuckets(subscriber, new Set([...previousModels].filter(model => !nextModels.has(model))));|1",
-      "file": "src/core/apply/commitBus.ts",
-      "line": 52,
-      "drops": "nothing",
-      "condition": "setDeps narrows a subscriber's model set",
-      "verdict": "NONDROP",
-      "ref": "exact set-difference rebucketing; subscriber keeps every model still present in nextDeps",
-      "note": "subscription routing state, not domain data"
-    },
-    {
-      "key": "src/core/apply/commitBus.ts|addToModelBuckets(subscriber, new Set([...nextModels].filter(model => !previousModels.has(model))));|1",
-      "file": "src/core/apply/commitBus.ts",
-      "line": 53,
-      "drops": "nothing",
-      "condition": "setDeps widens a subscriber's model set",
-      "verdict": "NONDROP",
-      "ref": "additive bucketing only",
-      "note": "mirror of line 52, adds never discards"
     },
     {
       "key": "src/core/apply/commitBus.ts|if (!batch.rows.length && !batch.scopes.length && !batch.pending?.length) return;|1",
@@ -1659,46 +1609,6 @@
       "verdict": "NONDROP",
       "ref": "empty batch; also keeps membershipWrites counter at zero for no-op reconciles",
       "note": "No feed transaction opened for nothing."
-    },
-    {
-      "key": "src/core/storeScopeCollections.ts|if (existing === entry.orderKey) continue;|1",
-      "file": "src/core/storeScopeCollections.ts",
-      "line": 60,
-      "drops": "nothing",
-      "condition": "entries reconcile: membership already present with the same orderKey",
-      "verdict": "NONDROP",
-      "ref": "no-op skip; target state already holds",
-      "note": "Only changed rows produce feed messages."
-    },
-    {
-      "key": "src/core/storeScopeCollections.ts|for (const entityId of change.detachIds ?? []) {|1",
-      "file": "src/core/storeScopeCollections.ts",
-      "line": 64,
-      "drops": "nothing",
-      "condition": "scope change without detachIds",
-      "verdict": "NONDROP",
-      "ref": "optional field; absent list = no detaches instructed",
-      "note": "Projection executes exactly the given instructions."
-    },
-    {
-      "key": "src/core/storeScopeCollections.ts|for (const entry of change.upserts ?? []) {|1",
-      "file": "src/core/storeScopeCollections.ts",
-      "line": 67,
-      "drops": "nothing",
-      "condition": "scope change without upserts",
-      "verdict": "NONDROP",
-      "ref": "optional field; absent list = no upserts instructed",
-      "note": "Projection executes exactly the given instructions."
-    },
-    {
-      "key": "src/core/storeScopeCollections.ts|if (existing?.orderKey === entry.orderKey) continue;|1",
-      "file": "src/core/storeScopeCollections.ts",
-      "line": 70,
-      "drops": "nothing",
-      "condition": "upsert reconcile: membership already present with the same orderKey",
-      "verdict": "NONDROP",
-      "ref": "no-op skip; target state already holds",
-      "note": "Same-state upsert emits no message."
     },
     {
       "key": "src/core/storeSync.ts|} catch (error) {|1",
@@ -3291,26 +3201,6 @@
       "note": "Deferred-patch mechanisms are explicitly forbidden (W21); intent is dropped by rule."
     },
     {
-      "key": "src/dsl/modelContext.ts|const admittedPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => (epochs.get(field) ?? 0) <= baseRevision));|1",
-      "file": "src/dsl/modelContext.ts",
-      "line": 46,
-      "drops": "individual patch fields whose committed revision is newer than baseRevision",
-      "condition": "stale async patch racing a newer field commit",
-      "verdict": "CONTRACT",
-      "ref": "specs/03-write.md, Causal admission :: 'policy server accepts a field only if its current revision is not newer than the landing baseRevision' (translated)",
-      "note": "Field-level causal admission of patches; no per-field counter."
-    },
-    {
-      "key": "src/dsl/modelContext.ts|const admittedRemove = remove.filter(field => (epochs.get(field) ?? 0) <= baseRevision);|1",
-      "file": "src/dsl/modelContext.ts",
-      "line": 47,
-      "drops": "field removals whose target field committed after baseRevision",
-      "condition": "stale async remove racing a newer field commit",
-      "verdict": "CONTRACT",
-      "ref": "specs/03-write.md, Causal admission :: 'slow response ... does not reduce committed state' (translated)",
-      "note": "Removal is a downgrade of committed state; causal gate keeps the newer value."
-    },
-    {
       "key": "src/dsl/modelLandingGraph.ts|if (id === undefined) continue;|1",
       "file": "src/dsl/modelLandingGraph.ts",
       "line": 36,
@@ -4161,16 +4051,6 @@
       "note": "Written require gate; opt-in per reader."
     },
     {
-      "key": "src/read/scopeReadEngine.ts|const next = Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as RowRecord;|1",
-      "file": "src/read/scopeReadEngine.ts",
-      "line": 56,
-      "drops": "a declared model field literally named 'orderKey' (or '$'-prefixed) is silently invisible in every scope read: the scope select overwrites 'orderKey' with the membership order key and this strip removes it, while find() still returns it",
-      "condition": "a model schema declares a field named 'orderKey' or starting with '$' - nothing in normalization reserves or rejects these names",
-      "verdict": "CONTRACT",
-      "ref": "specs/09-dsl-surface.md :: reserved field names are a define-time error (S26) - a schema carrying orderKey/569JNRXghklprefixed fields is unrepresentable",
-      "note": "reclassified after stage 2-3 rules and fixes"
-    },
-    {
       "key": "src/read/scopeReadEngine.ts|.filter(isScopeRow)|1",
       "file": "src/read/scopeReadEngine.ts",
       "line": 102,
@@ -4187,18 +4067,8 @@
       "drops": "nothing",
       "condition": "building the dependency signature for a row dep without fields",
       "verdict": "NONDROP",
-      "ref": "signature construction only; callers normalize empty field lists to undefined (modelReactiveReads.ts:44 'required.length > 0 ? required : undefined'), and subscription deps are updated separately via setDeps",
+      "ref": "signature construction only; callers normalize empty field lists to undefined (modelReactiveReads.ts:44 'required.length > 0 ? required : undefined'). A dependency change is a new subscription (identity follows the deps signature)",
       "note": "The undefined-vs-[] signature collision has no producing caller."
-    },
-    {
-      "key": "src/read/useLiveRead.ts|if (state.isEqual(state.value, recomputed)) return;|1",
-      "file": "src/read/useLiveRead.ts",
-      "line": 58,
-      "drops": "nothing",
-      "condition": "commit intersects deps but the recomputed value is equal per the declared comparator",
-      "verdict": "NONDROP",
-      "ref": "equality-gated re-render: the value is unchanged by the caller's own equality definition; recompute already ran against committed state",
-      "note": "Reference stability, not suppression of a changed value."
     },
     {
       "key": "src/read/useMergedScopeRows.ts|const appended = extraRows.filter(row => !seen.has(row.id));|1",
@@ -5001,26 +4871,6 @@
       "note": ""
     },
     {
-      "key": "src/core/apply/applyExecution.ts|scopeChanges.set(key, { model, scopeKey, entries: change.entries, upserts: undefined, detachIds: undefined });|1",
-      "file": "src/core/apply/applyExecution.ts",
-      "line": 22,
-      "drops": "accumulated per-scope upserts/detachIds in the batch notification struct",
-      "condition": "a full 'scope' snapshot op follows scope-delta ops for the same scope in one batch",
-      "verdict": "NONDROP",
-      "ref": "notification metadata only; store membership already applied via target.scope/scopeDelta; per code comment the full entry set supersedes earlier delta state",
-      "note": ""
-    },
-    {
-      "key": "src/core/apply/applyExecution.ts|scopeChanges.set(key, {|1",
-      "file": "src/core/apply/applyExecution.ts",
-      "line": 27,
-      "drops": "earlier orderKey of an id re-upserted later in the same batch notification",
-      "condition": "two scope-delta ops touch the same id in one batch",
-      "verdict": "NONDROP",
-      "ref": "mergeUpserts keeps the newest upsert per id (uniqBy right-first) and unions detachIds; scope plane holds authoritative membership",
-      "note": ""
-    },
-    {
       "key": "src/core/apply/commitBus.ts|subscribersByModel.set(model, bucket);|1",
       "file": "src/core/apply/commitBus.ts",
       "line": 32,
@@ -5035,7 +4885,7 @@
       "file": "src/core/apply/commitBus.ts",
       "line": 39,
       "drops": "nothing (subscriber index entry)",
-      "condition": "unsubscribe or setDeps model change",
+      "condition": "unsubscribe",
       "verdict": "NONDROP",
       "ref": "subscriber registry maintenance; no domain data",
       "note": ""
@@ -6801,16 +6651,6 @@
       "note": ""
     },
     {
-      "key": "src/dsl/defineQuery.ts|registeredScopes.set(bucketKeyOf(scope), scope);|1",
-      "file": "src/dsl/defineQuery.ts",
-      "line": 143,
-      "drops": "previous scope object for the same bucket key",
-      "condition": "re-registration of an equivalent scope",
-      "verdict": "NONDROP",
-      "ref": "bucket key is built from the normalized scope, so same key = same canonical value; replacement is identity-equivalent",
-      "note": ""
-    },
-    {
       "key": "src/dsl/defineQuery.ts|const issued = reset ? (issuedResetSeqByBucket.get(guardKey) ?? 0) + 1 : issuedResetSeqByBucket.get(guardKey)!;|1",
       "file": "src/dsl/defineQuery.ts",
       "line": 300,
@@ -7839,6 +7679,276 @@
       "key": "src/dsl/defineQuery.ts|const admitted = (rawNodes as unknown[]).map(row => ({ row, id: admitRowId(row) })).filter(entry => entry.id !== undefined) as Array<{ row: unknown; id: string }>;|1",
       "verdict": "CONTRACT",
       "ref": "08-freshness-pacing.md: a malformed node inside a valid page is judged once by the admission seam, quarantined as plan-row-rejected, and never takes the landing down"
+    },
+    {
+      "key": "src/core/apply/applyExecution.ts|scopeChanges.set(key, current);|1",
+      "file": "src/core/apply/applyExecution.ts",
+      "line": 15,
+      "drops": "nothing",
+      "condition": "a scope step is noted for a key already noted in this batch",
+      "verdict": "NONDROP",
+      "ref": "projection steps are appended in op order (W45); a full entry set replaces earlier steps because the store diffs it against its rows",
+      "note": "ordered coalescing of change notes, no membership discarded"
+    },
+    {
+      "key": "src/core/diagnostics.ts|if (diagnostics.causalAdmissionDropEvents.length > 100) diagnostics.causalAdmissionDropEvents.splice(0, diagnostics.causalAdmissionDropEvents.length - 100);|1",
+      "file": "src/core/diagnostics.ts",
+      "line": 137,
+      "drops": "oldest causal admission drop events beyond 100",
+      "condition": "more than 100 drop events since reset",
+      "verdict": "CONTRACT",
+      "ref": "specs/03-write.md: causalAdmissionDropEvents is a bounded (100) record; the counter causalAdmissionDrops keeps the total",
+      "note": "diagnostics ring, not data"
+    },
+    {
+      "key": "src/core/planes/operationState.ts|if (pendingPatchCount === 0) return EMPTY_OWNED;|1",
+      "file": "src/core/planes/operationState.ts",
+      "line": 419,
+      "drops": "nothing",
+      "condition": "no pending patch on the model",
+      "verdict": "NONDROP",
+      "ref": "ownedFields answers an empty set when nothing is owned; readers treat it as no ownership",
+      "note": "shared empty set constant"
+    },
+    {
+      "key": "src/core/planes/operationState.ts|if (!bucket) return EMPTY_OWNED;|1",
+      "file": "src/core/planes/operationState.ts",
+      "line": 421,
+      "drops": "nothing",
+      "condition": "no operation bucket for the row",
+      "verdict": "NONDROP",
+      "ref": "ownedFields answers an empty set when the row has no operation bucket",
+      "note": "shared empty set constant"
+    },
+    {
+      "key": "src/core/storeDerivedCollections.ts|if (!liveCounts.has(gauge)) registerResidency(gauge, () => liveCounts.get(gauge) ?? 0);|1",
+      "file": "src/core/storeDerivedCollections.ts",
+      "line": 8,
+      "drops": "nothing",
+      "condition": "first cache instance under a gauge name",
+      "verdict": "NONDROP",
+      "ref": "one residency gauge per name; later instances share it (specs/01-architecture.md residency)",
+      "note": "gauge registration"
+    },
+    {
+      "key": "src/core/storeDerivedCollections.ts|liveCounts.set(gauge, (liveCounts.get(gauge) ?? 0) + delta);|1",
+      "file": "src/core/storeDerivedCollections.ts",
+      "line": 9,
+      "drops": "nothing",
+      "condition": "live count update for a gauge name",
+      "verdict": "NONDROP",
+      "ref": "gauge counter arithmetic",
+      "note": "gauge bookkeeping"
+    },
+    {
+      "key": "src/core/storeScopeCollections.ts|if (orderKey === null) ids.delete(entityId);|1",
+      "file": "src/core/storeScopeCollections.ts",
+      "line": 70,
+      "drops": "nothing",
+      "condition": "an earlier step of the same change detached this id",
+      "verdict": "NONDROP",
+      "ref": "batch-local view of memberships during projection (W45): the id is out of the current set for the next step",
+      "note": "projection view, membership delete already queued"
+    },
+    {
+      "key": "src/core/storeScopeCollections.ts|if (orderKeyOf(entityId) === undefined) return;|1",
+      "file": "src/core/storeScopeCollections.ts",
+      "line": 76,
+      "drops": "nothing",
+      "condition": "detach of an id that is not a member (store or batch-local view)",
+      "verdict": "NONDROP",
+      "ref": "a detach of a non-member is a no-op on both planes",
+      "note": "idempotent detach"
+    },
+    {
+      "key": "src/core/storeScopeCollections.ts|projected.set(entityId, null);|1",
+      "file": "src/core/storeScopeCollections.ts",
+      "line": 78,
+      "drops": "nothing",
+      "condition": "detach queued",
+      "verdict": "NONDROP",
+      "ref": "records the detach in the batch-local view so later steps of the same change see it (W45)",
+      "note": "projection view"
+    },
+    {
+      "key": "src/core/storeScopeCollections.ts|if (existing === entry.orderKey) return;|1",
+      "file": "src/core/storeScopeCollections.ts",
+      "line": 82,
+      "drops": "nothing",
+      "condition": "upsert with the order key the membership already has",
+      "verdict": "NONDROP",
+      "ref": "unchanged pair writes nothing; the row is a member with that key",
+      "note": "dedup of a no-op write"
+    },
+    {
+      "key": "src/core/storeScopeCollections.ts|projected.set(entry.id, entry.orderKey);|1",
+      "file": "src/core/storeScopeCollections.ts",
+      "line": 84,
+      "drops": "nothing",
+      "condition": "upsert queued",
+      "verdict": "NONDROP",
+      "ref": "records the upsert in the batch-local view so later steps of the same change see it (W45)",
+      "note": "projection view"
+    },
+    {
+      "key": "src/core/storeScopeCollections.ts|continue;|1",
+      "file": "src/core/storeScopeCollections.ts",
+      "line": 91,
+      "drops": "nothing",
+      "condition": "full entry set step processed",
+      "verdict": "NONDROP",
+      "ref": "loop control after diffing the full entry set; delta handling below applies only to delta steps",
+      "note": "loop continue"
+    },
+    {
+      "key": "src/dsl/defineQuery.ts|registeredScopes.set(bucketKey, scope);|1",
+      "file": "src/dsl/defineQuery.ts",
+      "line": 147,
+      "drops": "nothing",
+      "condition": "first registration of a scope bucket key",
+      "verdict": "NONDROP",
+      "ref": "one scope object per bucket key so reader effects run once per key (F59); an equal key means an equal normalized scope",
+      "note": "identity cache"
+    },
+    {
+      "key": "src/dsl/defineQuery.ts|if (options.nextPage && ((client.getQueryData(queryKey) as ChainMeta | undefined)?.cursor ?? null) === null) return;|1",
+      "file": "src/dsl/defineQuery.ts",
+      "line": 399,
+      "drops": "nothing",
+      "condition": "next-page request while the live chain has no cursor",
+      "verdict": "CONTRACT",
+      "ref": "F58: a next-page request against an exhausted or replaced chain is a no-op, never a first-page landing",
+      "note": "guards the chain and scope order"
+    },
+    {
+      "key": "src/dsl/modelContext.ts|const evicted = (field: string): boolean => (epochs.get(field) ?? 0) > baseRevision;|1",
+      "file": "src/dsl/modelContext.ts",
+      "line": 60,
+      "drops": "nothing",
+      "condition": "field epoch lookup for admission",
+      "verdict": "NONDROP",
+      "ref": "predicate used by the admission filters below; the eviction itself is counted at line 64",
+      "note": "predicate"
+    },
+    {
+      "key": "src/dsl/modelContext.ts|const admittedPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => !evicted(field)));|1",
+      "file": "src/dsl/modelContext.ts",
+      "line": 61,
+      "drops": "stale patch fields against newer committed state",
+      "condition": "field epoch newer than baseRevision",
+      "verdict": "COUNTED",
+      "ref": "causalAdmissionDrops + causalAdmissionDropEvents (W41)",
+      "note": "counted with the evicted field names"
+    },
+    {
+      "key": "src/dsl/modelContext.ts|const admittedRemove = remove.filter(field => !evicted(field));|1",
+      "file": "src/dsl/modelContext.ts",
+      "line": 62,
+      "drops": "stale removals against newer committed state",
+      "condition": "field epoch newer than baseRevision",
+      "verdict": "COUNTED",
+      "ref": "causalAdmissionDrops + causalAdmissionDropEvents (W41)",
+      "note": "counted with the evicted field names"
+    },
+    {
+      "key": "src/dsl/modelContext.ts|const evictedFields = [...Object.keys(patch), ...remove].filter(evicted);|1",
+      "file": "src/dsl/modelContext.ts",
+      "line": 63,
+      "drops": "nothing",
+      "condition": "collects the evicted field names for the record",
+      "verdict": "NONDROP",
+      "ref": "produces the fields list of the drop event; the drop is counted at line 64",
+      "note": "diagnostics detail"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as RowRecord;|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 54,
+      "drops": "nothing",
+      "condition": "projecting a scope row for readers",
+      "verdict": "NONDROP",
+      "ref": "strips engine-only fields ($-prefixed, orderKey) from the row copy handed to readers; the store row keeps them",
+      "note": "presentation projection"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|if (seed) for (const row of seed) rowCache.set(row.id, row);|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 141,
+      "drops": "nothing",
+      "condition": "holder created after readers rendered a seed",
+      "verdict": "NONDROP",
+      "ref": "seeds the row identity cache so the holder adopts rows readers already rendered (R28); the source is re-read right after",
+      "note": "identity cache"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|listeners.delete(listener);|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 148,
+      "drops": "nothing",
+      "condition": "a reader unsubscribes from the holder",
+      "verdict": "NONDROP",
+      "ref": "listener bookkeeping; the holder dies with the last reader (residency scopeReadHolders)",
+      "note": "listener set"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|listeners.clear();|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 154,
+      "drops": "nothing",
+      "condition": "holder cleanup after its last release",
+      "verdict": "NONDROP",
+      "ref": "listener bookkeeping on holder death",
+      "note": "listener set"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|registerReset(() => seeds.clear());|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 206,
+      "drops": "nothing",
+      "condition": "runtime reset",
+      "verdict": "NONDROP",
+      "ref": "pre-attach seeds of the dead generation are dropped with the runtime; readers re-read the new generation on publishAll (R22)",
+      "note": "reset housekeeping"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|.filter(isScopeRow)|2",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 215,
+      "drops": "nothing",
+      "condition": "a source row without string id/orderKey",
+      "verdict": "NONDROP",
+      "ref": "same guard as the holder readSource: only well-formed scope rows are projected; the store never emits others",
+      "note": "type guard"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|seeds.set(key, rows);|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 228,
+      "drops": "nothing",
+      "condition": "pre-attach read for a key",
+      "verdict": "NONDROP",
+      "ref": "shared seed per key so readers of one key rendered before its holder exists share row identities (R28)",
+      "note": "identity cache"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|const seed = seeds.get(key) ?? null;|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 234,
+      "drops": "nothing",
+      "condition": "holder created without a prior pre-attach read",
+      "verdict": "NONDROP",
+      "ref": "no seed means no identity to adopt; the holder reads the source",
+      "note": "seed absent"
+    },
+    {
+      "key": "src/read/scopeReadEngine.ts|seeds.delete(key);|1",
+      "file": "src/read/scopeReadEngine.ts",
+      "line": 235,
+      "drops": "nothing",
+      "condition": "holder created for the key",
+      "verdict": "NONDROP",
+      "ref": "the seed is consumed by the holder; identity now lives in the holder row cache",
+      "note": "identity cache handover"
     }
   ]
 }

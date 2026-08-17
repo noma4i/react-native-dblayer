@@ -33,7 +33,7 @@ describe('model store', () => {
     try {
       const store = buildStore();
       store.upsert({ id: 'row-1' });
-      store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
+      store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['row-1']) }] }]);
       store.markReady();
 
       expect(store.scopeCollection('scope-1').toArray()).toMatchObject([{ id: 'row-1' }]);
@@ -46,7 +46,7 @@ describe('model store', () => {
   it('keeps a snapshot read from retaining a live scope collection', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['row-1']) }] }]);
     store.markReady();
     const collections = { count: (): number => residencySnapshot().derivedCollections ?? 0 };
     const before = collections.count();
@@ -66,7 +66,7 @@ describe('model store', () => {
       const ids = Array.from({ length: size }, (_, index) => `row-${index}`);
       for (const id of ids) store.upsert({ id });
       const entries = entriesFor(ids);
-      store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
+      store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries }] }]);
       store.markReady();
       const scope = store.scopeCollection('scope-1');
       const seen: unknown[] = [];
@@ -76,7 +76,7 @@ describe('model store', () => {
       store.upsert({ id: insertedId });
       const middle = Math.floor(size / 2);
       const between = `${entries[middle - 1]!.orderKey}V`;
-      store.applyScopeChanges([{ scopeKey: 'scope-1', upserts: [{ id: insertedId, orderKey: between }] }]);
+      store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ upserts: [{ id: insertedId, orderKey: between }], detachIds: [] }] }]);
 
       const position = scope.toArray().findIndex(row => row.id === insertedId);
       unsubscribe();
@@ -90,7 +90,7 @@ describe('model store', () => {
   it('[P2] keeps scope reads empty until the store is marked ready', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1', label: 'first' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['row-1']) }] }]);
 
     expect(store.scopeCollection('scope-1').toArray()).toEqual([]);
 
@@ -103,8 +103,8 @@ describe('model store', () => {
     const store = buildStore();
     store.upsert({ id: 'c' });
     store.upsert({ id: 'b:c' });
-    store.applyScopeChanges([{ scopeKey: 'a:b', entries: entriesFor(['c']) }]);
-    store.applyScopeChanges([{ scopeKey: 'a', entries: entriesFor(['b:c']) }]);
+    store.applyScopeChanges([{ scopeKey: 'a:b', steps: [{ entries: entriesFor(['c']) }] }]);
+    store.applyScopeChanges([{ scopeKey: 'a', steps: [{ entries: entriesFor(['b:c']) }] }]);
     store.markReady();
 
     expect(
@@ -125,7 +125,7 @@ describe('model store', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1' });
     store.upsert({ id: 'row-2' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['row-1']) }] }]);
     store.markReady();
     const scope = store.scopeCollection('scope-1');
     const batches: unknown[][] = [];
@@ -133,13 +133,13 @@ describe('model store', () => {
 
     expect(() =>
       runInStoreTransaction(() => {
-        store.applyScopeChanges([{ scopeKey: 'scope-1', upserts: [{ id: 'row-2', orderKey: 'zz' }] }]);
+        store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ upserts: [{ id: 'row-2', orderKey: 'zz' }], detachIds: [] }] }]);
         throw new Error('transaction failed');
       })
     ).toThrow('transaction failed');
 
     runInStoreTransaction(() => {
-      store.applyScopeChanges([{ scopeKey: 'scope-1', detachIds: ['row-2'] }]);
+      store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ upserts: [], detachIds: ['row-2'] }] }]);
     });
 
     expect(batches.length).toBeGreaterThanOrEqual(1);
@@ -170,7 +170,7 @@ describe('model store', () => {
   it('[W43] skips membership entries with no entity row, counts the misses, and does not throw', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1', 'ghost-1', 'ghost-2']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['row-1', 'ghost-1', 'ghost-2']) }] }]);
     store.markReady();
     diagnostics().reset();
 
@@ -186,7 +186,7 @@ describe('model store', () => {
   it('[W43] counts join misses on the live scope collection read', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1', 'ghost-1']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['row-1', 'ghost-1']) }] }]);
     store.markReady();
     const scope = store.scopeCollection('scope-1');
     const unsubscribe = scope.subscribe(() => undefined);
@@ -220,7 +220,7 @@ describe('model store', () => {
   it('serves buffered same-batch reads while the live scope holds the pre-batch value', () => {
     const store = buildStore();
     store.upsert({ id: 'seed', label: 'before' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['seed']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['seed']) }] }]);
     store.markReady();
     const scope = store.scopeCollection('scope-1');
     expect(scope.toArray()).toMatchObject([{ id: 'seed', label: 'before' }]);
@@ -246,7 +246,7 @@ describe('model store', () => {
   it('aborts buffered rows and persistence markers when the batch throws', () => {
     const store = buildStore();
     store.upsert({ id: 'seed', label: 'before' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['seed']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['seed']) }] }]);
     store.markReady();
     store.ackPersist();
     const scope = store.scopeCollection('scope-1');
@@ -293,11 +293,11 @@ describe('model store', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1', label: 'first' });
     store.upsert({ id: 'row-2', label: 'second' });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1', 'row-2']) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: entriesFor(['row-1', 'row-2']) }] }]);
     store.markReady();
 
     store.destroy('row-1');
-    store.applyScopeChanges([{ scopeKey: 'scope-1', detachIds: ['row-1'] }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ upserts: [], detachIds: ['row-1'] }] }]);
 
     expect(store.read('row-1')).toBeUndefined();
     expect(store.read('row-2')).toMatchObject({ id: 'row-2' });
@@ -317,7 +317,7 @@ describe('model store', () => {
 
     const store = buildStore();
     for (const key of keys) store.upsert({ id: `row-${key}` });
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: keys.map(key => ({ id: `row-${key}`, orderKey: key })) }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: keys.map(key => ({ id: `row-${key}`, orderKey: key })) }] }]);
     store.markReady();
 
     expect(
@@ -333,8 +333,8 @@ describe('model store', () => {
     store.upsert({ id: 'scope-1-row' });
     store.upsert({ id: 'scope-2-row' });
     store.applyScopeChanges([
-      { scopeKey: 'scope-1', entries: entriesFor(['scope-1-row']) },
-      { scopeKey: 'scope-2', entries: entriesFor(['scope-2-row']) }
+      { scopeKey: 'scope-1', steps: [{ entries: entriesFor(['scope-1-row']) }] },
+      { scopeKey: 'scope-2', steps: [{ entries: entriesFor(['scope-2-row']) }] }
     ]);
     store.markReady();
 
@@ -351,10 +351,10 @@ describe('model store', () => {
     store.upsert({ id: 'row-1' });
     store.upsert({ id: 'row-2' });
     const entries = entriesFor(['row-1', 'row-2']);
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries }] }]);
     store.markReady();
 
-    store.applyScopeChanges([{ scopeKey: 'scope-1', upserts: [{ id: 'row-1', orderKey: `${entries[1]!.orderKey}V` }] }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ upserts: [{ id: 'row-1', orderKey: `${entries[1]!.orderKey}V` }], detachIds: [] }] }]);
 
     expect(
       store
@@ -369,13 +369,13 @@ describe('model store', () => {
     store.upsert({ id: 'row-1' });
     store.upsert({ id: 'row-2' });
     const entries = entriesFor(['row-1', 'row-2']);
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries }] }]);
     store.markReady();
     const seen: unknown[] = [];
     const unsubscribe = store.scopeCollection('scope-1').subscribe(changes => seen.push(...changes));
     diagnostics().reset();
 
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries }] }]);
 
     expect(seen).toEqual([]);
     expect(diagnostics().snapshot().membershipWrites).toBe(0);

@@ -24,7 +24,7 @@ const conditionExpression = <TStored extends RowRecord>(row: WhereRowRef, spec: 
  */
 export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQueryPlane => {
   const { modelId, storeId, entities } = options;
-  const cache = createDerivedCollectionCache<ReturnType<typeof build>>();
+  const cache = createDerivedCollectionCache<ReturnType<typeof build>>('derivedCollections');
 
   const build = <TStored extends RowRecord>(key: string, spec: ModelQuerySpec<TStored>) => {
     const collection = createLiveQueryCollection({

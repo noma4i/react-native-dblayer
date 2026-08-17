@@ -1,5 +1,5 @@
-import { uniq, uniqBy } from 'es-toolkit';
-import type { ApplyTarget, IncrementalCommitBatch, IncrementalScopeChange, AppliedOp } from '../../types';
+import { uniq } from 'es-toolkit';
+import type { ApplyTarget, IncrementalCommitBatch, IncrementalScopeChange, AppliedOp, ScopeProjectionStep } from '../../types';
 import { runInApplyBatch } from '../store';
 import { compositeKey } from '../serialize';
 import { getApplyTarget } from './applyTargetRegistry';
@@ -7,29 +7,12 @@ import { getApplyTarget } from './applyTargetRegistry';
 const applyOperations = (ops: AppliedOp[]): IncrementalCommitBatch => {
   const batch: IncrementalCommitBatch = { rows: [], scopes: [], scopeChanges: [] };
   const scopeChanges = new Map<string, IncrementalScopeChange>();
-  const noteScope = (
-    model: string,
-    scopeKey: string,
-    change:
-      | { entries: Array<{ id: string; orderKey: string }> }
-      | { upserts: Array<{ id: string; orderKey: string }>; detachIds: string[] }
-  ): void => {
+  const noteScope = (model: string, scopeKey: string, step: ScopeProjectionStep): void => {
     const key = compositeKey(model, scopeKey);
-    const current = scopeChanges.get(key) ?? { model, scopeKey };
-    if ('entries' in change) {
-      // A full entry set is the authoritative snapshot at this point of the op sequence: delta
-      // state accumulated BEFORE it is already contained in (or superseded by) the snapshot.
-      scopeChanges.set(key, { model, scopeKey, entries: change.entries, upserts: undefined, detachIds: undefined });
-      return;
-    }
-    const mergeUpserts = (left: Array<{ id: string; orderKey: string }> | undefined, right: Array<{ id: string; orderKey: string }>) =>
-      uniqBy([...right, ...(left ?? [])], entry => entry.id);
-    scopeChanges.set(key, {
-      ...current,
-      entries: current.entries,
-      upserts: mergeUpserts(current.upserts, change.upserts),
-      detachIds: uniq([...(current.detachIds ?? []), ...change.detachIds])
-    });
+    const current = scopeChanges.get(key) ?? { model, scopeKey, steps: [] };
+    // A full entry set supersedes every step before it: the projection diffs it against the store.
+    current.steps = 'entries' in step ? [step] : [...current.steps, step];
+    scopeChanges.set(key, current);
   };
   const noteRows = (model: string, target: ApplyTarget, ids: string[]): void => {
     for (const scopeKey of target.reactiveScopes?.(ids) ?? []) {

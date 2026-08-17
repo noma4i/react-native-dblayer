@@ -124,7 +124,7 @@ export const hydrateStoreScopes = (
 ): void => {
   for (const [model, source] of sources) {
     const store = ensureModelStore(model);
-    store.applyScopeChanges(source.readAllScopeKeys().map(scopeKey => ({ scopeKey, entries: source.readScopeEntries(scopeKey) })));
+    store.applyScopeChanges(source.readAllScopeKeys().map(scopeKey => ({ scopeKey, steps: [{ entries: source.readScopeEntries(scopeKey) }] })));
   }
 };
 

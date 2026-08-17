@@ -4,6 +4,8 @@ import { compareCodepoints } from '../core/serialize';
 import { noteScopeReadPass } from '../core/diagnostics';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { storeScopeCollection } from '../core/store';
+import { createDerivedCollectionCache } from '../core/storeDerivedCollections';
+import { registerReset } from '../core/reset';
 import type { RequireGate, RowRecord, ScopeProjectionOptions, ScopeReadWorkSnapshot, ScopeSortMeta, ScopeWindowSnapshot, StoreScopeChange, StoreScopeRow } from '../types';
 import { createProjectionGate, validateProjectionOptions } from './projectionGate';
 import { hasRequiredFields } from './requireFields';
@@ -44,27 +46,39 @@ const readRequireGate = (cache: { current: RequireGate }, source: RowRecord[], r
   return result;
 };
 
-const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {
+type ResolvedEntry = { source: StoreScopeRow & { id: string }; row: RowRecord };
+
+const isScopeRow = (entry: StoreScopeRow): entry is StoreScopeRow & { id: string } => typeof entry.id === 'string' && typeof entry.orderKey === 'string';
+
+const stripEngineFields = (sourceRow: RowRecord): RowRecord =>
+  Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as RowRecord;
+
+/**
+ * One materialization of a scope per key: the ordered rows every reader of the key shares. The
+ * holder is subscribed to the store collection from the moment it exists, so its value is never
+ * older than the last commit while any reader holds it; readers read `value`, they never keep a
+ * copy of the rows.
+ */
+const createScopeReadHolder = (modelId: string, scopeKey: string, seed: RowRecord[] | null) => {
   const rowCache = new Map<string, RowRecord>();
-  const source = scopeKey == null ? null : storeScopeCollection(modelId, scopeKey);
-  let resolvedEntries: Array<{ source: StoreScopeRow & { id: string }; row: RowRecord }> = [];
-  let revision = scopeKey == null ? 0 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
+  const source = storeScopeCollection(modelId, scopeKey);
+  const listeners = new Set<() => void>();
+  let resolvedEntries: ResolvedEntry[] = [];
+  let revision = getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
   // The declared sort is the order authority for a client-sorted scope; persisted
   // entry order carries the order only for server-order scopes.
-  const rowCompare = scopeKey == null ? null : getApplyTarget(modelId).compareScopeRows(scopeKey);
+  const rowCompare = getApplyTarget(modelId).compareScopeRows(scopeKey);
   const resolveRow = (sourceRow: RowRecord, kind: keyof ScopeReadWorkSnapshot): RowRecord => {
-    const next = Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as RowRecord;
+    const next = stripEngineFields(sourceRow);
     const current = rowCache.get(next.id);
     const resolved = current && rowsShallowEqual(current, next) ? current : next;
     if (resolved !== current) noteScopeReadWork(kind, 1);
     rowCache.set(next.id, resolved);
     return resolved;
   };
-  const compareEntries = (left: { source: StoreScopeRow & { id: string }; row: RowRecord }, right: { source: StoreScopeRow & { id: string }; row: RowRecord }): number =>
-    rowCompare
-      ? rowCompare(left.row, right.row)
-      : compareCodepoints(left.source.orderKey, right.source.orderKey) || compareCodepoints(left.source.id, right.source.id);
-  const insertionIndex = (entry: { source: StoreScopeRow & { id: string }; row: RowRecord }): number => {
+  const compareEntries = (left: ResolvedEntry, right: ResolvedEntry): number =>
+    rowCompare ? rowCompare(left.row, right.row) : compareCodepoints(left.source.orderKey, right.source.orderKey) || compareCodepoints(left.source.id, right.source.id);
+  const insertionIndex = (entry: ResolvedEntry): number => {
     let lower = 0;
     let upper = resolvedEntries.length;
     while (lower < upper) {
@@ -74,7 +88,17 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     }
     return lower;
   };
-  const isScopeRow = (entry: StoreScopeRow): entry is StoreScopeRow & { id: string } => typeof entry.id === 'string' && typeof entry.orderKey === 'string';
+  const readSource = (): ResolvedEntry[] => {
+    const entries = source
+      .toArray()
+      .filter(isScopeRow)
+      .map(entry => ({ source: entry, row: resolveRow(entry as RowRecord, 'fullRows') }));
+    if (rowCompare) entries.sort(compareEntries);
+    return entries;
+  };
+  const publishRows = (): void => {
+    holder.value = resolvedEntries.length === 0 ? EMPTY_ROWS : resolvedEntries.map(entry => entry.row);
+  };
   const updateValue = (entry: StoreScopeRow, kind: keyof ScopeReadWorkSnapshot): boolean => {
     if (!isScopeRow(entry)) return false;
     const currentIndex = resolvedEntries.findIndex(current => current.source.id === entry.id);
@@ -92,23 +116,6 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     rowCache.delete(entry!.source.id);
     return true;
   };
-  const publishRows = (): void => {
-    engine.value = resolvedEntries.map(entry => entry.row);
-    engine.version += 1;
-  };
-  const readSource = (): Array<{ source: StoreScopeRow & { id: string }; row: RowRecord }> => {
-    if (!source) return [];
-    const entries = source
-      .toArray()
-      .filter(isScopeRow)
-      .map(entry => ({ source: entry, row: resolveRow(entry as RowRecord, 'fullRows') }));
-    if (rowCompare) entries.sort(compareEntries);
-    return entries;
-  };
-  resolvedEntries = readSource();
-  const initialRows = resolvedEntries.length === 0 ? EMPTY_ROWS : resolvedEntries.map(entry => entry.row);
-  const sameEntries = (left: typeof resolvedEntries, right: typeof resolvedEntries): boolean =>
-    left.length === right.length && left.every((entry, index) => entry.source.id === right[index]!.source.id && entry.source.orderKey === right[index]!.source.orderKey && entry.row === right[index]!.row);
   const applyChanges = (changes: StoreScopeChange[]): boolean => {
     let changed = false;
     for (const change of changes) {
@@ -125,69 +132,134 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     publishRows();
     return true;
   };
-  const engine = {
-    signature: incrementalSignature('scope-read', modelId, scopeKey, sortMeta),
-    generation: getRuntimeGeneration(),
-    value: initialRows,
-    version: 0,
-    subscribe: (listener: () => void): (() => void) => {
-      let notifiedSinceCommit = false;
-      let forceCommitNotification = false;
-      const releaseSource =
-        source?.subscribe(changes => {
-          const changed = applyChanges(changes);
-          if (changed) {
-            listener();
-            notifiedSinceCommit = true;
-          }
-        }) ?? (() => {});
-      // The snapshot was taken at render; commits landed before this subscription attached are not
-      // delivered as changes, so the engine re-reads the source once and publishes the difference.
-      const current = readSource();
-      if (!sameEntries(resolvedEntries, current)) {
-        resolvedEntries = current;
-        publishRows();
-      }
-      if (scopeKey == null) return releaseSource;
-      const subscription = getCommitBus().subscribeIncremental(
-        () => {
-          if (!notifiedSinceCommit || forceCommitNotification) listener();
-          notifiedSinceCommit = false;
-          forceCommitNotification = false;
-        },
-        [{ kind: 'scope', model: modelId, scopeKey }],
-        batch => {
-          if (batch === null) forceCommitNotification = reset();
-          else {
-            // Not duplication of engine state: the revision comparison feeds the scopeReadPasses/scopeReadResorts
-            // work counters that the p04/p06 perf gates assert on (resorts must stay scope-local).
-            const nextRevision = getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
-            const orderChanged = nextRevision !== revision;
-            revision = nextRevision;
-            noteScopeReadPass(orderChanged);
-          }
-        }
-      );
+  const notify = (): void => {
+    for (const listener of [...listeners]) listener();
+  };
+  // Seed identity: a reader that rendered before this holder existed passes the rows it rendered;
+  // when the source still names the same rows the holder adopts them and the reader does not
+  // re-render on subscribe.
+  if (seed) for (const row of seed) rowCache.set(row.id, row);
+  resolvedEntries = readSource();
+  const holder = {
+    value: EMPTY_ROWS as RowRecord[],
+    listen: (listener: () => void): (() => void) => {
+      listeners.add(listener);
       return () => {
-        releaseSource();
-        subscription.unsubscribe();
+        listeners.delete(listener);
       };
+    },
+    cleanup: (): void => {
+      releaseSource();
+      commitSubscription.unsubscribe();
+      listeners.clear();
     }
   };
-  return engine;
+  publishRows();
+  if (seed && holder.value.length === seed.length && holder.value.every((row, index) => row === seed[index])) holder.value = seed;
+  let notifiedSinceCommit = false;
+  let forceCommitNotification = false;
+  const releaseSource = source.subscribe(changes => {
+    if (applyChanges(changes)) {
+      notify();
+      notifiedSinceCommit = true;
+    }
+  });
+  const commitSubscription = getCommitBus().subscribeIncremental(
+    () => {
+      if (!notifiedSinceCommit || forceCommitNotification) notify();
+      notifiedSinceCommit = false;
+      forceCommitNotification = false;
+    },
+    [{ kind: 'scope', model: modelId, scopeKey }],
+    batch => {
+      if (batch === null) forceCommitNotification = reset();
+      else {
+        // Not duplication of holder state: the revision comparison feeds the scopeReadPasses/scopeReadResorts
+        // work counters that the p04/p06 perf gates assert on (resorts must stay scope-local).
+        const nextRevision = getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
+        const orderChanged = nextRevision !== revision;
+        revision = nextRevision;
+        noteScopeReadPass(orderChanged);
+      }
+    }
+  );
+  return holder;
 };
 
+type ScopeReadHolder = ReturnType<typeof createScopeReadHolder>;
+
+/**
+ * Process-wide holder cache: one holder per key while any reader holds it. A runtime reset does not
+ * dispose holders: the key carries the generation, so `publishAll` after the reset re-renders every
+ * reader onto a new-generation holder and the last release retires the old one.
+ */
+const holders = createDerivedCollectionCache<ScopeReadHolder>('scopeReadHolders');
+
+const holderKey = (modelId: string, scopeKey: string, sortMeta: ScopeSortMeta): string =>
+  incrementalSignature('scope-read', modelId, scopeKey, sortMeta) + `|g${getRuntimeGeneration()}`;
+
+/**
+ * Rows a reader rendered before it attached, per key: every reader of the key that renders before the
+ * holder exists shares these row identities, and the holder adopts them when it is created.
+ */
+const seeds = new Map<string, RowRecord[]>();
+registerReset(() => seeds.clear());
+
+/** An ordered read of the source for a reader that has not attached yet: React re-reads through the holder right after subscribe. */
+const readSeed = (key: string, modelId: string, scopeKey: string): RowRecord[] => {
+  const previous = seeds.get(key);
+  const previousById = new Map(previous?.map(row => [row.id, row]));
+  const rowCompare = getApplyTarget(modelId).compareScopeRows(scopeKey);
+  const entries = storeScopeCollection(modelId, scopeKey)
+    .toArray()
+    .filter(isScopeRow)
+    .map(entry => {
+      const next = stripEngineFields(entry as RowRecord);
+      const known = previousById.get(next.id);
+      const row = known && rowsShallowEqual(known, next) ? known : next;
+      if (row !== known) noteScopeReadWork('fullRows', 1);
+      return { source: entry, row };
+    });
+  if (rowCompare) entries.sort((left, right) => rowCompare(left.row, right.row));
+  else entries.sort((left, right) => compareCodepoints(left.source.orderKey, right.source.orderKey) || compareCodepoints(left.source.id, right.source.id));
+  const rows = entries.length === 0 ? EMPTY_ROWS : entries.map(entry => entry.row);
+  const same = previous !== undefined && previous.length === rows.length && rows.every((row, index) => row === previous[index]);
+  if (same) return previous;
+  seeds.set(key, rows);
+  return rows;
+};
+
+const acquireHolder = (key: string, modelId: string, scopeKey: string) =>
+  holders.acquire(key, () => {
+    const seed = seeds.get(key) ?? null;
+    seeds.delete(key);
+    return createScopeReadHolder(modelId, scopeKey, seed);
+  });
+
 const useScopeReadSnapshot = <TSnapshot>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, snapshot: (rows: RowRecord[]) => TSnapshot): TSnapshot => {
-  const signature = incrementalSignature('scope-read', modelId, scopeKey, sortMeta);
-  const engineRef = useRef<ReturnType<typeof createScopeReadEngine> | null>(null);
-  if (!engineRef.current || engineRef.current.signature !== signature || engineRef.current.generation !== getRuntimeGeneration()) {
-    engineRef.current = createScopeReadEngine(modelId, scopeKey, sortMeta);
-  }
+  const key = scopeKey === null ? null : holderKey(modelId, scopeKey, sortMeta);
+  const heldRef = useRef<{ key: string; holder: ScopeReadHolder } | null>(null);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
-  const engine = engineRef.current;
-  const subscribe = useCallback((listener: () => void) => engine.subscribe(listener), [engine]);
-  const getSnapshot = useCallback(() => snapshotRef.current(engine.value), [engine]);
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      if (key === null || scopeKey === null) return () => {};
+      const held = acquireHolder(key, modelId, scopeKey);
+      heldRef.current = { key, holder: held.collection };
+      const unlisten = held.collection.listen(listener);
+      return () => {
+        unlisten();
+        if (heldRef.current?.holder === held.collection) heldRef.current = null;
+        held.release();
+      };
+    },
+    [key, modelId, scopeKey]
+  );
+  const getSnapshot = useCallback(() => {
+    if (key === null || scopeKey === null) return snapshotRef.current(EMPTY_ROWS);
+    if (heldRef.current?.key === key) return snapshotRef.current(heldRef.current.holder.value);
+    return snapshotRef.current(readSeed(key, modelId, scopeKey));
+  }, [key, modelId, scopeKey]);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
@@ -214,7 +286,7 @@ export function useScopeReadRows<TOutput extends Record<string, unknown> = RowRe
   return useScopeRetention(scopeKey, { rows: store.rows, totalCount: store.rows.length }, store.resolved, options.keepPrevious === true).snapshot.rows;
 }
 
-/** One count for one row set: the same engine source that feeds `use()`/`useWindow` (`totalCount`), so a membership without a materialized row is never counted. */
+/** One count for one row set: the same holder that feeds `use()`/`useWindow` (`totalCount`), so a membership without a materialized row is never counted. */
 export function useScopeReadCount(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, isResolved: () => boolean): number {
   // The resolved flip is the snapshot's witness of a new runtime generation: a bare length stays 0
   // across a reset of an empty scope, and a snapshot that never changes never re-renders the reader.

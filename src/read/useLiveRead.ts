@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import type { CommitSubscription, Dependency, LiveReadState } from '../types';
+import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
+import type { Dependency, LiveReadState } from '../types';
 import { getCommitBus } from '../dsl/configure';
 import { compositeKey, semanticValue } from '../core/serialize';
 
@@ -32,9 +32,8 @@ export const useLiveRead = <T>(
 ): T => {
   const bus = getCommitBus();
   const stateRef = useRef<LiveReadState<T> | null>(null);
-  const subscriptionRef = useRef<CommitSubscription | null>(null);
   if (stateRef.current === null) {
-    stateRef.current = { value: compute(), version: 0, signature: compositeKey(inputSignature, depsSignature(deps)), compute, isEqual, deps };
+    stateRef.current = { value: compute(), readAt: bus.sequence(), version: 0, signature: compositeKey(inputSignature, depsSignature(deps)), compute, isEqual, deps };
   }
   const state = stateRef.current;
   state.compute = compute;
@@ -44,6 +43,7 @@ export const useLiveRead = <T>(
   const nextSignature = compositeKey(inputSignature, depsSignature(deps));
   if (nextSignature !== state.signature) {
     state.signature = nextSignature;
+    state.readAt = bus.sequence();
     const next = compute();
     if (!state.isEqual(state.value, next)) {
       state.value = next;
@@ -51,33 +51,31 @@ export const useLiveRead = <T>(
     }
   }
 
+  // The subscription identity follows the dependency signature: a new dependency set means React
+  // re-subscribes and re-reads the value itself, so no window exists where the live subscription
+  // still names the previous dependencies.
+  const identity = useMemo(() => ({ signature: nextSignature }), [nextSignature]);
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      const subscription = bus.subscribe(() => {
+      // A subscribe from a superseded identity has nothing to attach: React is about to run the current one.
+      if (identity.signature !== state.signature) return () => {};
+      const recompute = (): boolean => {
+        state.readAt = bus.sequence();
         const recomputed = state.compute();
-        if (state.isEqual(state.value, recomputed)) return;
+        if (state.isEqual(state.value, recomputed)) return false;
         state.value = recomputed;
         state.version += 1;
-        onStoreChange();
-      }, state.deps);
-      subscriptionRef.current = subscription;
-      const recomputed = state.compute();
-      if (!state.isEqual(state.value, recomputed)) {
-        state.value = recomputed;
-        state.version += 1;
-        onStoreChange();
-      }
-      return () => {
-        subscriptionRef.current = null;
-        subscription.unsubscribe();
+        return true;
       };
+      const subscription = bus.subscribe(() => {
+        if (recompute()) onStoreChange();
+      }, state.deps);
+      // A publish since the render read means the rendered value may be stale: re-read once at attach.
+      if (bus.sequence() !== state.readAt && recompute()) onStoreChange();
+      return () => subscription.unsubscribe();
     },
-    [bus, state]
+    [bus, identity, state]
   );
-
-  useEffect(() => {
-    subscriptionRef.current?.setDeps(state.deps);
-  });
 
   useSyncExternalStore(subscribe, () => state.version);
 

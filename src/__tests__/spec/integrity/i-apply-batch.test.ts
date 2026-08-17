@@ -222,11 +222,14 @@ describe('apply pipeline batching', () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
 
-    secondSubscription.setDeps([{ kind: 'model', model: 'OtherModel' }]);
+    // A dependency change is a new subscription: the old one leaves its bucket, the new one joins its own.
+    secondSubscription.unsubscribe();
+    const thirdSubscription = bus.subscribe(second, [{ kind: 'model', model: 'OtherModel' }]);
     bus.publish({ rows: [{ model: MODEL, id: 'row-2', fields: null }], scopes: [] });
     expect(second).toHaveBeenCalledTimes(1);
     bus.publish({ rows: [{ model: 'OtherModel', id: 'row-2', fields: null }], scopes: [] });
     expect(second).toHaveBeenCalledTimes(2);
+    thirdSubscription.unsubscribe();
   });
 
   it('applies entity work before scope membership inside one commit', () => {
@@ -243,7 +246,7 @@ describe('apply pipeline batching', () => {
     expect(order).toEqual(['put', 'scope']);
   });
 
-  it('[A14] [W6] [W30] notifies a model query only after every model in the envelope reached final state', () => {
+  it('[A14] [W6] [W30] [F7] notifies a model query only after every model in the envelope reached final state', () => {
     setupSpecRuntime();
     const first = defineModelRuntime({
       id: 'SpecApplyBatchFirst',
@@ -282,64 +285,71 @@ describe('apply pipeline batching', () => {
     query.release();
   });
 
-  it('[F7] aggregates every scope note of one commit into a single merged scope change', () => {
-    const { storage, mock, bus, published } = setup();
-    void mock;
-    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
-    const ops: WriteOp[] = [
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'row-a' }, { id: 'row-b' }], origin: 'event' },
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'row-b' }], origin: 'event' },
-      {
-        kind: 'scope-delta',
-        model: MODEL,
-        scopeKey: 'scope-1',
-        append: [{ id: 'row-c', orderKey: '7' }, { id: 'row-d' }],
-        detach: ['row-e']
-      },
-      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 2, coverage: 'complete', entries: [] } }
-    ];
+  describe('membership projection follows the op order of one envelope', () => {
+    let suffix = 0;
+    const setupModel = () => {
+      setupSpecRuntime();
+      const model = defineModelRuntime({
+        id: `SpecApplyBatchProjection${(suffix += 1)}`,
+        name: `SpecApplyBatchProjection${suffix}`,
+        fields: { label: f.str(), bucket: f.str() },
+        scopes: { byBucket: ({ by: { bucket: 'bucket' }, sort: 'server-order' }) }
+      });
+      const scope = getInternalScopeHandle(model.scopes.byBucket);
+      const scopeKey = scope.key({ bucket: 'a' });
+      const projected = storeScopeCollection(model.modelId, scopeKey);
+      const memberIds = (): string[] => projected.toArray().map(row => String(row.id));
+      const planeIds = (): string[] => model.scopes.byBucket.read({ bucket: 'a' }).map(row => row.id);
+      return { model, scopeKey, memberIds, planeIds };
+    };
 
-    runtime.commit(createCommitEnvelope(ops));
+    it('[W45] [scope without X, delta append X with its previous key] leaves X in the collection', () => {
+      const { model, scopeKey, memberIds, planeIds } = setupModel();
+      model.insertMany([
+        { id: 'x', label: 'x', bucket: 'a' },
+        { id: 'y', label: 'y', bucket: 'a' }
+      ]);
+      getApplyRuntime().commit(
+        createCommitEnvelope([
+          { kind: 'scope', model: model.modelId, scopeKey, next: { generation: 2, coverage: 'complete', entries: [{ id: 'x', orderKey: '1' }, { id: 'y', orderKey: '2' }] } }
+        ])
+      );
+      expect(memberIds()).toEqual(['x', 'y']);
 
-    const changes = published[0]!.scopeChanges!;
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toEqual({
-      model: MODEL,
-      scopeKey: 'scope-1',
-      entries: [],
-      upserts: undefined,
-      detachIds: undefined
+      getApplyRuntime().commit(
+        createCommitEnvelope([
+          { kind: 'scope', model: model.modelId, scopeKey, next: { generation: 3, coverage: 'complete', entries: [{ id: 'y', orderKey: '2' }] } },
+          { kind: 'scope-delta', model: model.modelId, scopeKey, append: [{ id: 'x', orderKey: '1' }], detach: [] }
+        ])
+      );
+
+      expect(memberIds()).toEqual(['x', 'y']);
+      expect(memberIds()).toEqual(planeIds());
     });
-  });
 
-  it('drops delta state accumulated before an authoritative full entry set of the same commit', () => {
-    const { storage, bus, published } = setup();
-    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
-    const ops: WriteOp[] = [
-      { kind: 'scope-delta', model: MODEL, scopeKey: 'scope-1', append: [], detach: ['row-x'] },
-      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 2, coverage: 'complete', entries: [{ id: 'row-x', orderKey: 'a' }] } }
-    ];
+    it('[W45] [scope with X, delta detach X] leaves X out of the collection', () => {
+      const { model, scopeKey, memberIds, planeIds } = setupModel();
+      model.insertMany([
+        { id: 'x', label: 'x', bucket: 'a' },
+        { id: 'y', label: 'y', bucket: 'a' }
+      ]);
+      getApplyRuntime().commit(
+        createCommitEnvelope([
+          { kind: 'scope', model: model.modelId, scopeKey, next: { generation: 2, coverage: 'complete', entries: [{ id: 'y', orderKey: '2' }] } }
+        ])
+      );
+      expect(memberIds()).toEqual(['y']);
 
-    runtime.commit(createCommitEnvelope(ops));
+      getApplyRuntime().commit(
+        createCommitEnvelope([
+          { kind: 'scope', model: model.modelId, scopeKey, next: { generation: 3, coverage: 'complete', entries: [{ id: 'x', orderKey: '1' }, { id: 'y', orderKey: '2' }] } },
+          { kind: 'scope-delta', model: model.modelId, scopeKey, append: [], detach: ['x'] }
+        ])
+      );
 
-    expect(published[0]!.scopeChanges).toEqual([
-      { model: MODEL, scopeKey: 'scope-1', entries: [{ id: 'row-x', orderKey: 'a' }], upserts: undefined, detachIds: undefined }
-    ]);
-  });
-
-  it('keeps delta state layered on top of an earlier full entry set of the same commit', () => {
-    const { storage, bus, published } = setup();
-    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
-    const ops: WriteOp[] = [
-      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 2, coverage: 'complete', entries: [{ id: 'row-x', orderKey: 'a' }] } },
-      { kind: 'scope-delta', model: MODEL, scopeKey: 'scope-1', append: [{ id: 'row-y', orderKey: 'b' }], detach: ['row-x'] }
-    ];
-
-    runtime.commit(createCommitEnvelope(ops));
-
-    expect(published[0]!.scopeChanges).toEqual([
-      { model: MODEL, scopeKey: 'scope-1', entries: [{ id: 'row-x', orderKey: 'a' }], upserts: [{ id: 'row-y', orderKey: 'b' }], detachIds: ['row-x'] }
-    ]);
+      expect(memberIds()).toEqual(['y']);
+      expect(memberIds()).toEqual(planeIds());
+    });
   });
 
   it('normalizes non-string ids across every plan branch so one overlay identity survives the batch', () => {

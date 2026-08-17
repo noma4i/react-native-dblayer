@@ -58,6 +58,8 @@ export const configureDb = (options: ConfigureDbOptions): void => {
     registerReset(resetStores);
     storeResetRegistered = true;
   }
+  // A mounted reader learns about the new runtime the same way it learns about a reset.
+  commitBus.publishAll();
 };
 
 export const getDbRuntimeConfig = (): RuntimeConfig => {

@@ -448,3 +448,50 @@ describe('persistence window rules', () => {
     act(() => root.unmount());
   });
 });
+
+/**
+ * `configureDb` under a mounted reader is a runtime restart like `resetRuntime`: every mounted
+ * reader re-renders onto the new runtime, without a remount and without waiting for a commit that
+ * happens to touch it.
+ */
+describe('configureDb under a mounted reader', () => {
+  it('[R22] re-renders a mounted reader onto the new runtime and follows its first write', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport({}) });
+    const rows = defineModelRuntime({
+      id: 'SpecReconfigureReader',
+      name: 'SpecReconfigureReader',
+      fields: { label: f.str() }
+    });
+    await act(async () => {
+      await bootDb();
+    });
+    rows.insert({ id: 'r-1', label: 'one' });
+    let count = -1;
+    const Reader = () => {
+      count = rows.use.count();
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await act(async () => {
+      await settle();
+    });
+    expect(count).toBe(1);
+
+    act(() => {
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport({}) });
+    });
+    expect(count).toBe(0);
+    await act(async () => {
+      await bootDb();
+    });
+    act(() => {
+      rows.insert({ id: 'r-2', label: 'two' });
+    });
+    expect(count).toBe(1);
+    act(() => root.unmount());
+  });
+});

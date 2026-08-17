@@ -21,6 +21,9 @@ export type DataLossMechanism =
 
 export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
 
+/** One causal admission eviction: which row of which model lost what against newer committed state. */
+export type CausalAdmissionDropEvent = { model: string; id: string; kind: 'existence' | 'row' | 'fields'; fields: string[] };
+
 /** Mutable work-counter state behind `__DBLAYER_DIAGNOSTICS__`. */
 export type DiagnosticsState = {
   commits: number;
@@ -48,5 +51,6 @@ export type DiagnosticsState = {
   nonResidentTouchDrops: number;
   unknownOperationAcks: number;
   causalAdmissionDrops: number;
+  causalAdmissionDropEvents: CausalAdmissionDropEvent[];
   dataLossEvents: DataLossEvent[];
 };

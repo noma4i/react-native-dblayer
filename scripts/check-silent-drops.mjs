@@ -27,7 +27,8 @@ const PATTERNS = [
   /\.splice\(/,
   /Object\.assign\(/,
   /Number\.isFinite/,
-  /Number\(/
+  /Number\(/,
+  /return (\[\]|EMPTY_[A-Z_]+)\b/
 ];
 const VERDICTS = new Set(['CONTRACT', 'COUNTED', 'HOLE', 'NONDROP']);
 

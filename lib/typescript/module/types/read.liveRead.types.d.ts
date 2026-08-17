@@ -2,6 +2,8 @@ import type { Dependency } from './core.apply.commitBus.types';
 /** One `useLiveRead` engine cell: cached value, change version, and the deps that invalidate it. */
 export type LiveReadState<T> = {
     value: T;
+    /** Commit-bus sequence at which `value` was read. */
+    readAt: number;
     version: number;
     signature: string;
     compute: () => T;

@@ -1,4 +1,4 @@
-import type { DataLossMechanism } from '../types';
+import type { CausalAdmissionDropEvent, DataLossMechanism } from '../types';
 export declare const noteCommit: () => void;
 export declare const noteCommitFanout: (candidates: number, notified: number) => void;
 /** One incremental update of a declared query, sized by the rows it moved. */
@@ -31,8 +31,8 @@ export declare const noteCounterOpDrop: () => void;
 export declare const noteNonResidentTouchDrop: () => void;
 /** Count terminal ledger acks aimed at an unknown or already-closed operation. */
 export declare const noteUnknownOperationAck: () => void;
-/** Count rows or fields evicted by causal admission (stale baseRevision against newer committed state). */
-export declare const noteCausalAdmissionDrop: () => void;
+/** Count rows or fields evicted by causal admission (stale baseRevision against newer committed state), with a bounded record of what was evicted. */
+export declare const noteCausalAdmissionDrop: (event: CausalAdmissionDropEvent) => void;
 /** Append a bounded, inspectable record whenever a row, membership, guard, or operation is discarded. */
 export declare const noteDataLoss: (mechanism: DataLossMechanism, model: string, count: number) => void;
 //# sourceMappingURL=diagnostics.d.ts.map

@@ -1,9 +1,13 @@
 import type { DerivedCollection, DerivedCollectionCache } from '../types';
 import { registerResidency } from './residency';
 
-let liveDerivedCollectionCount = 0;
+/** Live entry counts per gauge name across every cache instance; one gauge per name for the process. */
+const liveCounts = new Map<string, number>();
 
-registerResidency('derivedCollections', () => liveDerivedCollectionCount);
+const countLive = (gauge: string, delta: number): void => {
+  if (!liveCounts.has(gauge)) registerResidency(gauge, () => liveCounts.get(gauge) ?? 0);
+  liveCounts.set(gauge, (liveCounts.get(gauge) ?? 0) + delta);
+};
 
 /**
  * One home for the lifetime of every collection derived from a store: scope windows and model
@@ -13,14 +17,14 @@ registerResidency('derivedCollections', () => liveDerivedCollectionCount);
  * Two caches would mean two answers to "when does a derived collection die", and the one that got
  * the answer wrong would leak quietly - nothing observable happens when a query stays alive.
  */
-export const createDerivedCollectionCache = <TCollection extends DerivedCollection>(): DerivedCollectionCache<TCollection> => {
+export const createDerivedCollectionCache = <TCollection extends DerivedCollection>(gauge: string): DerivedCollectionCache<TCollection> => {
   const entries = new Map<string, { collection: TCollection; consumers: number }>();
 
   const release = (key: string, entry: { collection: TCollection; consumers: number }): void => {
     entry.consumers -= 1;
     if (entry.consumers !== 0 || entries.get(key) !== entry) return;
     entries.delete(key);
-    liveDerivedCollectionCount -= 1;
+    countLive(gauge, -1);
     void entry.collection.cleanup();
   };
 
@@ -31,14 +35,14 @@ export const createDerivedCollectionCache = <TCollection extends DerivedCollecti
       const entry = existing ?? { collection: build(), consumers: 0 };
       if (!existing) {
         entries.set(key, entry);
-        liveDerivedCollectionCount += 1;
+        countLive(gauge, 1);
       }
       entry.consumers += 1;
       return { collection: entry.collection, release: () => release(key, entry) };
     },
     disposeAll: () => {
       for (const entry of entries.values()) void entry.collection.cleanup();
-      liveDerivedCollectionCount -= entries.size;
+      countLive(gauge, -entries.size);
       entries.clear();
     }
   };

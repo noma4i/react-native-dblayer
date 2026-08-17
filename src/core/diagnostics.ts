@@ -1,5 +1,5 @@
 import { registerReset } from './reset';
-import type { DataLossMechanism, DiagnosticsState } from '../types';
+import type { CausalAdmissionDropEvent, DataLossMechanism, DiagnosticsState } from '../types';
 
 
 const emptyDiagnostics = (): DiagnosticsState => ({
@@ -28,6 +28,7 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   nonResidentTouchDrops: 0,
   unknownOperationAcks: 0,
   causalAdmissionDrops: 0,
+  causalAdmissionDropEvents: [],
   dataLossEvents: []
 });
 
@@ -129,9 +130,11 @@ export const noteUnknownOperationAck = (): void => {
   diagnostics.unknownOperationAcks += 1;
 };
 
-/** Count rows or fields evicted by causal admission (stale baseRevision against newer committed state). */
-export const noteCausalAdmissionDrop = (): void => {
+/** Count rows or fields evicted by causal admission (stale baseRevision against newer committed state), with a bounded record of what was evicted. */
+export const noteCausalAdmissionDrop = (event: CausalAdmissionDropEvent): void => {
   diagnostics.causalAdmissionDrops += 1;
+  diagnostics.causalAdmissionDropEvents.push(event);
+  if (diagnostics.causalAdmissionDropEvents.length > 100) diagnostics.causalAdmissionDropEvents.splice(0, diagnostics.causalAdmissionDropEvents.length - 100);
 };
 
 /** Append a bounded, inspectable record whenever a row, membership, guard, or operation is discarded. */
@@ -141,7 +144,7 @@ export const noteDataLoss = (mechanism: DataLossMechanism, model: string, count:
   if (diagnostics.dataLossEvents.length > 100) diagnostics.dataLossEvents.splice(0, diagnostics.dataLossEvents.length - 100);
 };
 
-const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics, dataLossEvents: [...diagnostics.dataLossEvents] });
+const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics, causalAdmissionDropEvents: [...diagnostics.causalAdmissionDropEvents], dataLossEvents: [...diagnostics.dataLossEvents] });
 
 const resetDiagnostics = (): void => {
   diagnostics = emptyDiagnostics();

@@ -179,7 +179,7 @@ describe('runtime edge helpers', () => {
     expect(gate.projectValue('direct', { version: 1 }, { id: 'direct', label: 'value' })).toEqual({ id: 'direct', label: 'value' });
   });
 
-  it('recomputes a live read between render and subscription and accepts pending dependencies', () => {
+  it('keeps the value read at render while nothing was published, re-reads on a publish landed before attach, and accepts pending dependencies', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     let calls = 0;
     let latest = 0;
@@ -198,7 +198,21 @@ describe('runtime edge helpers', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(Probe));
     });
-    expect(latest).toBeGreaterThan(1);
+    expect(latest).toBe(1);
+    act(() => root.unmount());
+
+    // A publish between the render read and the attach: the attach re-reads once.
+    calls = 0;
+    const Late = () => {
+      React.useLayoutEffect(() => {
+        getCommitBus().publishAll();
+      }, []);
+      return null;
+    };
+    act(() => {
+      root = TestRenderer.create(React.createElement(React.Fragment, null, React.createElement(Probe), React.createElement(Late)));
+    });
+    expect(latest).toBe(2);
     act(() => root.unmount());
   });
 

@@ -107,6 +107,59 @@ describe('page metadata follows the declared direction', () => {
     reader.unmount();
   });
 
+  it('[F58] a next-page request against an exhausted chain is a no-op: no landing, chain and scope rows intact', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const responses = [
+      { nodes: [{ id: 'row-1', bucket: 'main', label: 'page-1' }], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } },
+      { nodes: [{ id: 'row-2', bucket: 'main', label: 'page-2' }], pageInfo: { hasNextPage: false, endCursor: null } }
+    ];
+    let served = 0;
+    const transport = createMockTransport({
+      query: async <TData, TVariables>(operation: { variables?: TVariables }) => {
+        calls.push((operation.variables ?? {}) as Record<string, unknown>);
+        const response = responses[Math.min(served, responses.length - 1)]!;
+        served += 1;
+        return { data: { page: response } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const modelId = `SpecPageDirection${++suffix}`;
+    const rows = defineModelRuntime({
+      id: modelId,
+      name: modelId,
+      fields: { bucket: f.str(), label: f.str() },
+      scopes: { bucket: ({ by: { bucket: 'bucket' }, sort: 'server-order' }) }
+    });
+    const query = rows.query<PageResponse, { bucket: string }, { bucket: string }, Row>('bucket', {
+      document,
+      vars: scope => ({ bucket: scope.bucket }),
+      page: data => data.page,
+      into: rows.scopes.bucket,
+      coverage: 'page'
+    });
+    const reader = renderCountedInProvider(() => query.use({ bucket: 'main' }));
+    await settle();
+    // The render snapshot taken before the last page landed still says hasNextPage.
+    const beforeLastPage = reader.result();
+    expect(beforeLastPage.hasNextPage).toBe(true);
+    await act(async () => {
+      beforeLastPage.fetchNextPage();
+      await settle();
+    });
+    expect(reader.result().hasNextPage).toBe(false);
+    expect(reader.result().data.map(row => row.id)).toEqual(['row-1', 'row-2']);
+
+    await act(async () => {
+      beforeLastPage.fetchNextPage();
+      await settle();
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(reader.result().data.map(row => row.id)).toEqual(['row-1', 'row-2']);
+    expect(reader.result().hasNextPage).toBe(false);
+    expect(reader.result().isFetchingNextPage).toBe(false);
+    reader.unmount();
+  });
 });
 
 /**

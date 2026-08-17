@@ -88,6 +88,7 @@ describe('read diagnostics', () => {
       nonResidentTouchDrops: 0,
       unknownOperationAcks: 0,
       causalAdmissionDrops: 0,
+      causalAdmissionDropEvents: [],
       dataLossEvents: []
     });
   });

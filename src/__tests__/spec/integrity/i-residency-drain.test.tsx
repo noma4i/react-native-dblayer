@@ -33,6 +33,26 @@ describe('residency drain', () => {
     expect(residencySnapshot().derivedCollections).toBe(0);
   });
 
+  it('[A1] holds no scope read holder for a scope reader that unmounted', () => {
+    setupSpecRuntime();
+    const rows = defineModelRuntime({
+      id: `SpecResidencyScope${(suffix += 1)}`,
+      name: `SpecResidencyScope${suffix}`,
+      fields: { bucket: f.str(), label: f.str() },
+      scopes: { bucket: { by: { bucket: 'bucket' } } }
+    });
+    rows.insert({ id: 'r-1', bucket: 'a', label: 'one' });
+    const first = renderCounted(() => rows.scopes.bucket.use({ bucket: 'a' }));
+    const second = renderCounted(() => rows.scopes.bucket.use({ bucket: 'a' }));
+    expect(residencySnapshot().scopeReadHolders).toBe(1);
+
+    first.unmount();
+    expect(residencySnapshot().scopeReadHolders).toBe(1);
+    second.unmount();
+
+    expect(residencySnapshot().scopeReadHolders).toBe(0);
+  });
+
   it('holds no row bucket for an operation that was taken back', () => {
     createRows();
     expect(residencySnapshot().operationRowBuckets).toBe(0);

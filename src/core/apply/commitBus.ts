@@ -24,6 +24,7 @@ export const createCommitBus = (): CommitBus => {
   const retained = new Set<{ deps: ReadonlyArray<Dependency> }>();
   const subscribersByModel = new Map<string, Set<CommitSubscriber>>();
   const allSubscribers = new Set<(batch: IncrementalCommitBatch) => void>();
+  let sequence = 0;
   const modelsOf = (deps: ReadonlyArray<Dependency>): Set<string> => new Set(deps.map(dep => dep.model));
   const addToModelBuckets = (subscriber: CommitSubscriber, models: ReadonlySet<string>): void => {
     for (const model of models) {
@@ -46,13 +47,6 @@ export const createCommitBus = (): CommitBus => {
     subscribers.add(subscriber);
     addToModelBuckets(subscriber, modelsOf(deps));
     return {
-      setDeps: nextDeps => {
-        const previousModels = modelsOf(subscriber.deps);
-        const nextModels = modelsOf(nextDeps);
-        removeFromModelBuckets(subscriber, new Set([...previousModels].filter(model => !nextModels.has(model))));
-        addToModelBuckets(subscriber, new Set([...nextModels].filter(model => !previousModels.has(model))));
-        subscriber.deps = nextDeps;
-      },
       unsubscribe: () => {
         removeFromModelBuckets(subscriber, modelsOf(subscriber.deps));
         subscribers.delete(subscriber);
@@ -80,8 +74,10 @@ export const createCommitBus = (): CommitBus => {
     },
     /** Snapshot of live reader dependencies. */
     activeDependencies: (): ReadonlyArray<Dependency> => [...subscribers, ...retained].flatMap(holder => holder.deps),
+    sequence: () => sequence,
     publish: (batch: IncrementalCommitBatch): void => {
       if (!batch.rows.length && !batch.scopes.length && !batch.pending?.length) return;
+      sequence += 1;
       for (const onBatch of [...allSubscribers]) onBatch(batch);
       const batchModels = new Set([...batch.rows, ...batch.scopes, ...(batch.pending ?? [])].map(change => change.model));
       const candidates = new Set<CommitSubscriber>();
@@ -99,6 +95,7 @@ export const createCommitBus = (): CommitBus => {
       noteCommitFanout(candidates.size, notified);
     },
     publishAll: (): void => {
+      sequence += 1;
       for (const subscriber of [...subscribers]) {
         subscriber.onBatch?.(null);
         subscriber.notify();

@@ -50,9 +50,13 @@ describe('store plane lifetime ownership', () => {
     store.applyScopeChanges([
       {
         scopeKey: 'scope-1',
-        entries: [
-          { id: 'row-1', orderKey: KEYS[0]! },
-          { id: 'row-2', orderKey: KEYS[1]! }
+        steps: [
+          {
+            entries: [
+              { id: 'row-1', orderKey: KEYS[0]! },
+              { id: 'row-2', orderKey: KEYS[1]! }
+            ]
+          }
         ]
       }
     ]);
@@ -86,7 +90,7 @@ describe('store plane lifetime ownership', () => {
 
     // The exact production sequence: a background sweep projects a shrunken snapshot into a scope
     // nobody has read for a while.
-    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: [{ id: 'row-1', orderKey: KEYS[0]! }] }]);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', steps: [{ entries: [{ id: 'row-1', orderKey: KEYS[0]! }] }] }]);
 
     expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(['row-1']);
   });

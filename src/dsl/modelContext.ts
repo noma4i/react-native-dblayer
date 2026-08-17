@@ -27,39 +27,41 @@ export const createModelContext = <TStored extends { id: string }>(options: {
     admitRow: (incoming, previous, baseRevision) => {
       if (baseRevision === undefined) return incoming;
       if (changedAfter(existenceEpochs, incoming.id, baseRevision)) {
-        noteCausalAdmissionDrop();
+        noteCausalAdmissionDrop({ model: options.modelId, id: incoming.id, kind: 'existence', fields: [] });
         return null;
       }
       if (!previous) {
         if (!changedAfter(rowEpochs, incoming.id, baseRevision)) return incoming;
-        noteCausalAdmissionDrop();
+        noteCausalAdmissionDrop({ model: options.modelId, id: incoming.id, kind: 'row', fields: [] });
         return null;
       }
       const epochs = fieldEpochs.get(incoming.id);
       if (!epochs) return incoming;
       const admitted = { ...incoming };
-      let evictedFields = 0;
+      const evictedFields: string[] = [];
       for (const field of Object.keys(incoming)) {
         if (field === 'id' || (epochs.get(field) ?? 0) <= baseRevision) continue;
-        evictedFields += 1;
+        evictedFields.push(field);
         if (Object.hasOwn(previous, field)) admitted[field as keyof TStored] = previous[field as keyof TStored];
         else delete admitted[field as keyof TStored];
       }
-      if (evictedFields > 0) noteCausalAdmissionDrop();
+      if (evictedFields.length > 0) noteCausalAdmissionDrop({ model: options.modelId, id: incoming.id, kind: 'fields', fields: evictedFields });
       return admitted;
     },
     admitPatch: (id, patch, remove, previous, baseRevision) => {
       if (!previous) return null;
       if (baseRevision === undefined) return { patch, remove: [...remove] };
       if (changedAfter(existenceEpochs, id, baseRevision)) {
-        noteCausalAdmissionDrop();
+        noteCausalAdmissionDrop({ model: options.modelId, id, kind: 'existence', fields: [] });
         return null;
       }
       const epochs = fieldEpochs.get(id);
       if (!epochs) return { patch, remove: [...remove] };
-      const admittedPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => (epochs.get(field) ?? 0) <= baseRevision));
-      const admittedRemove = remove.filter(field => (epochs.get(field) ?? 0) <= baseRevision);
-      if (Object.keys(admittedPatch).length < Object.keys(patch).length || admittedRemove.length < remove.length) noteCausalAdmissionDrop();
+      const evicted = (field: string): boolean => (epochs.get(field) ?? 0) > baseRevision;
+      const admittedPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => !evicted(field)));
+      const admittedRemove = remove.filter(field => !evicted(field));
+      const evictedFields = [...Object.keys(patch), ...remove].filter(evicted);
+      if (evictedFields.length > 0) noteCausalAdmissionDrop({ model: options.modelId, id, kind: 'fields', fields: evictedFields });
       return Object.keys(admittedPatch).length > 0 || admittedRemove.length > 0 ? { patch: admittedPatch, remove: admittedRemove } : null;
     },
     admitDestroy: (id, baseRevision) =>

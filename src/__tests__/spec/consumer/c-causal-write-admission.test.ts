@@ -367,10 +367,11 @@ describe('causal write admission', () => {
 
     expect(fixture.rows.find('row-1')).toEqual(expected);
     expect(diagnostics().snapshot().causalAdmissionDrops).toBe(1);
+    expect(diagnostics().snapshot().causalAdmissionDropEvents).toEqual([{ model: 'SpecCausalAdmissionAdmissionDropCounter', id: 'row-1', kind: 'fields', fields: ['protectedValue', 'auxiliaryValue'] }]);
     fixture.unmount();
   });
 
-  it('[W45] refuses a slow response for an identity destroyed and server-reborn after the fetch base', async () => {
+  it('[W27] refuses a slow response for an identity destroyed and server-reborn after the fetch base', async () => {
     const fixture = createFieldFixture('AdmissionExistenceGate');
     const reborn = { ...initialRow(), localValue: 'reborn-local' };
     const { pending: slow } = await fixture.start('slow');
@@ -391,7 +392,7 @@ describe('causal write admission', () => {
     fixture.unmount();
   });
 
-  it('[W46] a fully admitted response and a fully admitted patch never touch the drop counter', async () => {
+  it('[W41] a fully admitted response and a fully admitted patch never touch the drop counter', async () => {
     const fixture = createFieldFixture('AdmissionCleanCounters');
     const { pending: slow } = await fixture.start('slow');
 

@@ -19,7 +19,7 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
   });
   const membershipsByScope = memberships.createIndex(row => row.scopeKey, { indexType: BasicIndex });
 
-  const scopeCollections = createDerivedCollectionCache<ReturnType<typeof buildScopeCollection>>();
+  const scopeCollections = createDerivedCollectionCache<ReturnType<typeof buildScopeCollection>>('derivedCollections');
   const buildScopeCollection = (scopeKey: string) =>
     createLiveQueryCollection({
       ...OWNED_COLLECTION_LIFETIME,
@@ -51,29 +51,47 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
     membershipFeed.finish();
   };
 
-  /** Project ready-made membership instructions; the store never computes an order key. */
+  /**
+   * Project ready-made membership instructions in op order; the store never computes an order key.
+   * Steps of one change see the rows as projected by the steps before them, not the pre-batch store.
+   */
   const projectScopeChange = (change: StoreScopeSyncChange): void => {
     const messages: Array<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>> = [];
-    if (change.entries) {
-      const current = new Map(scopeMembers(change.scopeKey).map(row => [row.entityId, row.orderKey] as const));
-      const nextIds = new Set(change.entries.map(entry => entry.id));
-      for (const [entityId] of current) {
-        if (!nextIds.has(entityId)) messages.push({ type: 'delete', key: membershipKey(change.scopeKey, entityId) });
+    // Batch-local view over the store: entityId -> orderKey, null = detached by an earlier step.
+    const projected = new Map<string, string | null>();
+    const orderKeyOf = (entityId: string): string | undefined => {
+      const local = projected.get(entityId);
+      if (local !== undefined) return local ?? undefined;
+      return memberships.get(membershipKey(change.scopeKey, entityId))?.orderKey;
+    };
+    const currentIds = (): string[] => {
+      const ids = new Set(scopeMembers(change.scopeKey).map(row => row.entityId));
+      for (const [entityId, orderKey] of projected) {
+        if (orderKey === null) ids.delete(entityId);
+        else ids.add(entityId);
       }
-      for (const entry of change.entries) {
-        const existing = current.get(entry.id);
-        if (existing === entry.orderKey) continue;
-        messages.push({ type: existing === undefined ? 'insert' : 'update', value: { scopeKey: change.scopeKey, entityId: entry.id, orderKey: entry.orderKey } });
-      }
-    }
-    for (const entityId of change.detachIds ?? []) {
-      if (memberships.has(membershipKey(change.scopeKey, entityId))) messages.push({ type: 'delete', key: membershipKey(change.scopeKey, entityId) });
-    }
-    for (const entry of change.upserts ?? []) {
-      const key = membershipKey(change.scopeKey, entry.id);
-      const existing = memberships.get(key);
-      if (existing?.orderKey === entry.orderKey) continue;
+      return [...ids];
+    };
+    const detach = (entityId: string): void => {
+      if (orderKeyOf(entityId) === undefined) return;
+      messages.push({ type: 'delete', key: membershipKey(change.scopeKey, entityId) });
+      projected.set(entityId, null);
+    };
+    const upsert = (entry: { id: string; orderKey: string }): void => {
+      const existing = orderKeyOf(entry.id);
+      if (existing === entry.orderKey) return;
       messages.push({ type: existing === undefined ? 'insert' : 'update', value: { scopeKey: change.scopeKey, entityId: entry.id, orderKey: entry.orderKey } });
+      projected.set(entry.id, entry.orderKey);
+    };
+    for (const step of change.steps) {
+      if ('entries' in step) {
+        const nextIds = new Set(step.entries.map(entry => entry.id));
+        for (const entityId of currentIds()) if (!nextIds.has(entityId)) detach(entityId);
+        for (const entry of step.entries) upsert(entry);
+        continue;
+      }
+      for (const entityId of step.detachIds) detach(entityId);
+      for (const entry of step.upserts) upsert(entry);
     }
     writeMemberships(messages);
   };

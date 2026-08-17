@@ -154,6 +154,7 @@ export type DiagnosticsSnapshot = {
   nonResidentTouchDrops: number;
   unknownOperationAcks: number;
   causalAdmissionDrops: number;
+  causalAdmissionDropEvents: Array<{ model: string; id: string; kind: 'existence' | 'row' | 'fields'; fields: string[] }>;
   dataLossEvents: Array<{ mechanism: string; model: string; count: number }>;
 };
 

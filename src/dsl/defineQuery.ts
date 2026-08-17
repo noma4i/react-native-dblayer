@@ -136,11 +136,15 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const bucketKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
   const queryKeyOf = (key: string): [string, string] => [keyName, key];
   const normalizeScope = (scope: TScope): TScope => (destinationScope ? (destinationScope.normalize(scope) as TScope) : scope);
+  // One scope object per bucket key: reader effects keyed on the scope run once per key, not once per render.
   const registerScope = (rawScope: TScope | null): TScope | null => {
     if (rawScope === null) return null;
     const scope = normalizeScope(rawScope);
     destinationScope?.key(scope);
-    registeredScopes.set(bucketKeyOf(scope), scope);
+    const bucketKey = bucketKeyOf(scope);
+    const registered = registeredScopes.get(bucketKey);
+    if (registered !== undefined) return registered;
+    registeredScopes.set(bucketKey, scope);
     return scope;
   };
   const matchesPartialScope = (scope: TScope, partial: TScope): boolean => {
@@ -390,6 +394,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       if (restored === undefined && options.propagateFailure) throw createOfflineFetchError();
       return;
     }
+    // A next page exists only while the live chain carries a cursor: a request from a render that
+    // predates the last landing must not run as a first-page landing.
+    if (options.nextPage && ((client.getQueryData(queryKey) as ChainMeta | undefined)?.cursor ?? null) === null) return;
     // Cancellation is synchronous; awaiting it would open a microtask window where a
     // concurrent restart dedupes into the fetch this one is about to supersede.
     if (options.restart) void client.cancelQueries({ queryKey });

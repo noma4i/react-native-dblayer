@@ -7,5 +7,5 @@ import type { DerivedCollection, DerivedCollectionCache } from '../types';
  * Two caches would mean two answers to "when does a derived collection die", and the one that got
  * the answer wrong would leak quietly - nothing observable happens when a query stays alive.
  */
-export declare const createDerivedCollectionCache: <TCollection extends DerivedCollection>() => DerivedCollectionCache<TCollection>;
+export declare const createDerivedCollectionCache: <TCollection extends DerivedCollection>(gauge: string) => DerivedCollectionCache<TCollection>;
 //# sourceMappingURL=storeDerivedCollections.d.ts.map

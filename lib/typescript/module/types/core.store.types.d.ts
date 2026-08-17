@@ -1,4 +1,5 @@
 import type { ModelQueryHandle, ModelQuerySpec } from './core.modelQueries.types';
+import type { ScopeProjectionStep } from './core.apply.commitBus.types';
 import type { ChangeMessage, ChangeMessageOrDeleteKeyMessage, Collection } from '@tanstack/db';
 import type { WriteCtx } from './core.writePolicies.types';
 import type { RowRecord } from './db.types';
@@ -61,20 +62,10 @@ export type StoreMembershipRow = {
     entityId: string;
     orderKey: string;
 };
-/** One scope projection instruction: ready-made keys only - the store never computes order. */
+/** One scope projection instruction: ready-made keys only - the store never computes order. Steps apply in order. */
 export type StoreScopeSyncChange = {
     scopeKey: string;
-    /** Full ordered membership (a rebuild); diffed against current rows so unchanged pairs write nothing. */
-    entries?: Array<{
-        id: string;
-        orderKey: string;
-    }>;
-    /** Point upserts carrying final order keys. */
-    upserts?: Array<{
-        id: string;
-        orderKey: string;
-    }>;
-    detachIds?: string[];
+    steps: ScopeProjectionStep[];
 };
 /**
  * Per-model primary store: the TanStack DB collection pair (entities + scope memberships) behind

@@ -18,20 +18,27 @@ export type CommitBatch = {
     scopes: ScopeChange[];
     pending?: PendingChange[];
 };
+/** One projection step of a scope within one envelope, in op order. */
+export type ScopeProjectionStep = 
+/** Full ordered membership (a rebuild); the store diffs it against the rows as projected so far. */
+{
+    entries: Array<{
+        id: string;
+        orderKey: string;
+    }>;
+}
+/** Point upserts carrying final order keys (insertions and repositions) and detaches. */
+ | {
+    upserts: Array<{
+        id: string;
+        orderKey: string;
+    }>;
+    detachIds: string[];
+};
 export type IncrementalScopeChange = {
     model: string;
     scopeKey: string;
-    /** Full ordered membership (a rebuild); the store diffs it against current rows. */
-    entries?: Array<{
-        id: string;
-        orderKey: string;
-    }>;
-    /** Point upserts carrying final order keys (insertions and repositions). */
-    upserts?: Array<{
-        id: string;
-        orderKey: string;
-    }>;
-    detachIds?: string[];
+    steps: ScopeProjectionStep[];
 };
 export type IncrementalCommitBatch = CommitBatch & {
     scopeChanges?: IncrementalScopeChange[];
@@ -54,7 +61,6 @@ export type Dependency = {
     id: string;
 };
 export type CommitSubscription = {
-    setDeps(deps: ReadonlyArray<Dependency>): void;
     unsubscribe(): void;
 };
 export type CommitBus = {
@@ -66,6 +72,8 @@ export type CommitBus = {
     retain(deps: ReadonlyArray<Dependency>): () => void;
     publish(batch: IncrementalCommitBatch): void;
     publishAll(): void;
+    /** Count of publishes so far: a value read at sequence N is current while sequence() is still N. */
+    sequence(): number;
     subscriberCount(): number;
 };
 /** One commit-bus subscriber: its dependency set and notification callbacks. */
