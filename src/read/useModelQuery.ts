@@ -71,6 +71,16 @@ export const useModelQuery = <TValue>(
           onStoreChange();
         });
       let detach = listen(active);
+      // Commits landed between the render that selected the value and this subscription are not
+      // replayed by the collection: re-select once so the reader never renders a pre-gap value.
+      {
+        const next = selectRef.current(active.rows());
+        const current = valueRef.current!;
+        if (!isEqualRef.current(current.value, next)) {
+          valueRef.current = { value: next, version: current.version + 1 };
+          onStoreChange();
+        }
+      }
       // The query's own collection dies silently on reset; the bus is the reader's wake-up channel.
       // Empty deps keep this subscriber out of every publish fanout - only publishAll reaches it.
       const bus = getCommitBus().subscribe(() => {

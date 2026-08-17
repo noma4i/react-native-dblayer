@@ -96,14 +96,19 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     engine.value = resolvedEntries.map(entry => entry.row);
     engine.version += 1;
   };
-  if (source) {
-    resolvedEntries = source
+  const readSource = (): Array<{ source: StoreScopeRow & { id: string }; row: RowRecord }> => {
+    if (!source) return [];
+    const entries = source
       .toArray()
       .filter(isScopeRow)
       .map(entry => ({ source: entry, row: resolveRow(entry as RowRecord, 'fullRows') }));
-    if (rowCompare) resolvedEntries.sort(compareEntries);
-  }
+    if (rowCompare) entries.sort(compareEntries);
+    return entries;
+  };
+  resolvedEntries = readSource();
   const initialRows = resolvedEntries.length === 0 ? EMPTY_ROWS : resolvedEntries.map(entry => entry.row);
+  const sameEntries = (left: typeof resolvedEntries, right: typeof resolvedEntries): boolean =>
+    left.length === right.length && left.every((entry, index) => entry.source.id === right[index]!.source.id && entry.source.orderKey === right[index]!.source.orderKey && entry.row === right[index]!.row);
   const applyChanges = (changes: StoreScopeChange[]): boolean => {
     let changed = false;
     for (const change of changes) {
@@ -136,6 +141,13 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
             notifiedSinceCommit = true;
           }
         }) ?? (() => {});
+      // The snapshot was taken at render; commits landed before this subscription attached are not
+      // delivered as changes, so the engine re-reads the source once and publishes the difference.
+      const current = readSource();
+      if (!sameEntries(resolvedEntries, current)) {
+        resolvedEntries = current;
+        publishRows();
+      }
       if (scopeKey == null) return releaseSource;
       const subscription = getCommitBus().subscribeIncremental(
         () => {
