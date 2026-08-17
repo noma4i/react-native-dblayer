@@ -1,5 +1,11 @@
 # Changelog
 
+## 10.1.0-beta.5 - 2026-08-17
+
+### Fixed
+
+- Reader subscribe gap: a scope reader (`scope.use` / `useWindow` / `useCount`) and a builder read (`use.where` / `use.first` / `use.count`) took their snapshot at render and attached the store subscription in a passive effect. A commit landing between those two moments (a socket message handled after paint) was never delivered as a change, so the reader kept a pre-gap value until the next change of the same row or a remount. Both readers now re-read their source once at subscription and publish the difference (`r07-reader-subscribe-gap`, R25 and R26).
+
 ## 10.1.0-beta.4 - 2026-08-10
 
 ### Fixed
